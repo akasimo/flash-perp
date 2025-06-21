@@ -154,12 +154,28 @@ impl FlashPerp {
         // Store the actual collateral token contract address provided
         env.storage().instance().set(&DataKey::CollateralToken, &token_addr);
 
-        // Initialize reserves for supported symbols
+        // Initialize reserves for supported symbols. We keep 1 000 "base" (1e6-scaled) units in
+        // every pool and size the quote leg to the *current* oracle price so that the pool value
+        // starts close to 1 000 USDC for all markets, instead of a hard-coded 1 000 000.
+
         let symbols = vec![&env, symbol_short!("XLM"), symbol_short!("BTC"), symbol_short!("ETH")];
         for sym in symbols.iter() {
+            let base_init: i128 = 1_000_000_000; // 1 000 units (1e6 precision)
+
+            // Try to fetch an oracle price; fall back to 1.0$ if unavailable so init never fails
+            #[cfg(test)]
+            let oracle_p = Self::_mock_oracle_price(sym.clone()).unwrap_or(1_000_000);
+
+            #[cfg(not(test))]
+            let oracle_p = fetch_oracle_price(&env, sym.clone()).unwrap_or(1_000_000);
+
+            let quote_init = base_init
+                .checked_mul(oracle_p).ok_or(Error::Overflow)?
+                / DEC_P; // convert back to 1e6 scale
+
             let reserve = Reserve {
-                base: 1_000_000_000,  // 1000 units
-                quote: 1_000_000_000_000,  // 1M USDC
+                base: base_init,
+                quote: quote_init,
             };
             env.storage().persistent().set(&DataKey::Reserves(sym.clone()), &reserve);
             env.storage().persistent().extend_ttl(&DataKey::Reserves(sym.clone()), 10_000, 10_000);
@@ -620,12 +636,20 @@ impl FlashPerp {
 
         reserve.quote = k / reserve.base;
 
-        // Fee is charged on the absolute notional of the trade (Δquote)
-        let trade_notional = (reserve.quote - quote_before).abs();
-        let fee = (trade_notional * FEE_BP) / 10_000;
+        // Calculate absolute change in quote ( |Δquote| ) without risking under-/overflow
+        let delta_quote = if reserve.quote >= quote_before {
+            reserve.quote - quote_before
+        } else {
+            quote_before - reserve.quote
+        };
 
-        // Pool retains the fee in quote asset
-        reserve.quote += fee;
+        // Fee = |Δquote| × feeBp / 10 000 with overflow checking
+        let fee = delta_quote
+            .checked_mul(FEE_BP).ok_or(Error::Overflow)?
+            / 10_000;
+
+        // Pool retains the fee in quote asset – check for overflow
+        reserve.quote = reserve.quote.checked_add(fee).ok_or(Error::Overflow)?;
 
         env.storage().persistent().set(&DataKey::Reserves(symbol.clone()), &reserve);
         env.storage().persistent().extend_ttl(&DataKey::Reserves(symbol.clone()), 10_000, 10_000);
@@ -720,8 +744,14 @@ impl FlashPerp {
         let premium_bp = ((mark_price - oracle_price) * 10_000) / oracle_price;
         // funding velocity proportional to premium, clamped to max drift
         let capped_premium_bp = premium_bp.max(-MAX_DRIFT_BP).min(MAX_DRIFT_BP);
-        let delta_rate = capped_premium_bp * MAX_FUNDING_VEL_BP / MAX_DRIFT_BP
-            * (now - funding.last_update) as i128 / 86_400; // per-day basis
+
+        // Δrate = premium * maxVel * elapsed / (maxDrift * secondsPerDay)
+        let elapsed: i128 = (now - funding.last_update) as i128;
+        let numerator = capped_premium_bp
+            .checked_mul(MAX_FUNDING_VEL_BP).ok_or(Error::Overflow)?
+            .checked_mul(elapsed).ok_or(Error::Overflow)?;
+        let denominator: i128 = MAX_DRIFT_BP * 86_400;
+        let delta_rate = numerator / denominator;
 
         funding.rate += delta_rate;
         funding.last_update = now;
