@@ -1,5 +1,7 @@
 // Landing page
 
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
 import Hero from './components/Hero';
@@ -50,7 +52,22 @@ export default function LandingPage() {
             {/* CTA button */}
             <div className="flex items-center space-x-4">
               <Link href="/app">
-                <Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white">
+                <Button 
+                  variant="outline" 
+                  className="border-blue-600 text-blue-600 hover:bg-blue-600 hover:border-blue-600 focus:ring-blue-500 transition-all duration-200"
+                  style={{
+                    borderColor: 'var(--blue-600)',
+                    color: 'var(--blue-600)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--blue-600)';
+                    e.currentTarget.style.color = 'white';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = 'var(--blue-600)';
+                  }}
+                >
                   Launch App
                 </Button>
               </Link>

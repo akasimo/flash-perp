@@ -20,6 +20,29 @@ export class FreighterWalletManager implements WalletManager {
     }
   }
 
+  private async waitForFreighter(timeout = 10000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      
+      const checkFreighter = () => {
+        if (typeof window !== 'undefined' && window.freighter) {
+          this.freighter = window.freighter;
+          resolve(true);
+          return;
+        }
+        
+        if (Date.now() - startTime > timeout) {
+          resolve(false);
+          return;
+        }
+        
+        setTimeout(checkFreighter, 100);
+      };
+      
+      checkFreighter();
+    });
+  }
+
   private setupEventListeners(): void {
     // Note: Freighter doesn't provide native event listeners
     // We'll implement polling for account changes if needed
@@ -50,21 +73,38 @@ export class FreighterWalletManager implements WalletManager {
     return typeof window !== 'undefined' && 'freighter' in window && !!window.freighter;
   }
 
+  async isFreighterInstalledAsync(): Promise<boolean> {
+    if (this.isFreighterInstalled()) {
+      return true;
+    }
+    
+    // Wait for Freighter to load (it might be injected asynchronously)
+    return await this.waitForFreighter(5000);
+  }
+
   async connect(): Promise<string | null> {
-    if (!this.isFreighterInstalled()) {
-      throw new Error('Freighter wallet is not installed. Please install it from freighter.app');
-    }
-
-    if (!this.freighter) {
-      this.initializeFreighter();
-    }
-
     try {
+      // First, wait for Freighter to be available
+      const isAvailable = await this.isFreighterInstalledAsync();
+      
+      if (!isAvailable) {
+        throw new Error('Freighter wallet not found. Please install it from freighter.app and refresh the page.');
+      }
+
+      if (!this.freighter) {
+        this.initializeFreighter();
+      }
+
+      // Double-check we have the freighter object
+      if (!this.freighter) {
+        throw new Error('Freighter wallet is not properly initialized. Please refresh the page and try again.');
+      }
+
       // Request access to the wallet
-      const { publicKey } = await this.freighter!.requestAccess();
+      const { publicKey } = await this.freighter.requestAccess();
       
       // Verify we're on the correct network
-      const network = await this.freighter!.getNetwork();
+      const network = await this.freighter.getNetwork();
       if (network !== NETWORK.TESTNET) {
         await this.switchNetwork(NETWORK.TESTNET);
       }
@@ -75,7 +115,18 @@ export class FreighterWalletManager implements WalletManager {
       return publicKey;
     } catch (error) {
       console.error('Error connecting to Freighter:', error);
-      throw new Error('Failed to connect to Freighter wallet');
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('User declined access')) {
+          throw new Error('Connection cancelled. Please try again and approve the connection request.');
+        }
+        if (error.message.includes('not found') || error.message.includes('install')) {
+          throw error; // Re-throw installation errors as-is
+        }
+      }
+      
+      throw new Error('Failed to connect to Freighter wallet. Please ensure Freighter is unlocked and try again.');
     }
   }
 

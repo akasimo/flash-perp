@@ -35,12 +35,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     updateState({ isConnecting: true, error: null });
 
     try {
-      // Check if Freighter is installed
-      if (!freighterWallet.isFreighterInstalled()) {
-        throw new Error(ERRORS.WALLET_NOT_FOUND);
-      }
-
-      // Attempt to connect
+      // Attempt to connect (this now includes async installation check)
       const address = await freighterWallet.connect();
       
       if (address) {
