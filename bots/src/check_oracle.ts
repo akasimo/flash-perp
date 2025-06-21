@@ -12,6 +12,8 @@ const RPC_URL = process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.
 const NETWORK_PASSPHRASE = Networks.TESTNET;
 const ORACLE_ID = "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63"; // Reflector Oracle on testnet
 
+let ORACLE_DECIMALS: number | undefined;
+
 async function fetchOraclePrice(assetSym: string) {
   const server = new rpc.Server(RPC_URL);
 
@@ -48,9 +50,19 @@ async function fetchOraclePrice(assetSym: string) {
   const native = scValToNative(scval);
   if (!native) throw new Error("None returned for price");
 
-  const price = BigInt(native.price); // PriceData { price, timestamp }
+  // Fetch decimals once
+  if (ORACLE_DECIMALS === undefined) {
+    const decTx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+      .addOperation(contract.call("decimals"))
+      .setTimeout(30)
+      .build();
+    const decSim: any = await server.simulateTransaction(decTx as any);
+    ORACLE_DECIMALS = Number(scValToNative(decSim.result?.retval));
+  }
 
-  return price;
+  const priceFull = BigInt(native.price);
+  const divisor = 10n ** BigInt((ORACLE_DECIMALS ?? 14) - 6);
+  return priceFull / divisor; // returns 1e6 scaled price
 }
 
 (async () => {
