@@ -83,6 +83,7 @@ pub struct PriceData {
 // ---------- Oracle integration ----------
 
 #[contractclient(name = "Oracle")]
+#[allow(dead_code)]
 trait OracleIfc {
     fn lastprice(asset: Asset) -> Option<PriceData>;
 }
@@ -568,7 +569,7 @@ mod test {
     #[test]
     fn test_initialization() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, FlashPerp);
+        let contract_id = env.register(FlashPerp, ());
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -585,7 +586,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, FlashPerp);
+        let contract_id = env.register(FlashPerp, ());
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -607,7 +608,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, FlashPerp);
+        let contract_id = env.register(FlashPerp, ());
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
