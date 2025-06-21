@@ -111,6 +111,7 @@ pub struct PriceData {
 #[allow(dead_code)]
 trait OracleIfc {
     fn lastprice(asset: Asset) -> Option<PriceData>;
+    fn decimals() -> u32;
 }
 
 fn fetch_oracle_price(env: &Env, sym: Symbol) -> Result<i128, Error> {
@@ -121,7 +122,14 @@ fn fetch_oracle_price(env: &Env, sym: Symbol) -> Result<i128, Error> {
     if env.ledger().timestamp() - pd.timestamp > 900 {
         return Err(Error::OracleStale);
     }
-    Ok(pd.price / 100_000_000) // 14-dec → 6-dec
+    let dec: u32 = oracle.decimals();
+    if dec < 6 { return Err(Error::OracleUnavailable); }
+    let factor_pow = dec - 6;
+    let mut divisor: i128 = 1;
+    for _ in 0..factor_pow {
+        divisor *= 10;
+    }
+    Ok(pd.price / divisor) // scale to 1e6
 }
 
 #[contract]
