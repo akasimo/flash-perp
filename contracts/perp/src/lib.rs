@@ -1,7 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, contracterror, contractclient,
-    Env, Address, Symbol, symbol_short, vec,
+    contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, vec, Address, Env, String, Symbol
 };
 
 // Oracle integration
@@ -89,7 +88,8 @@ trait OracleIfc {
 }
 
 fn fetch_oracle_price(env: &Env, sym: Symbol) -> Result<i128, Error> {
-    let oracle = Oracle::new(env, &Address::from_str(env, ORACLE_ID));
+    let oracle_address = Address::from_string(&String::from_str(env, ORACLE_ID));
+    let oracle = Oracle::new(env, &oracle_address);
     let pd = oracle.lastprice(&Asset::Other(sym))
         .ok_or(Error::OracleUnavailable)?;
     if env.ledger().timestamp() - pd.timestamp > 900 {
@@ -563,12 +563,12 @@ impl FlashPerp {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::testutils::{Address as _};
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_initialization() {
         let env = Env::default();
-        let contract_id = env.register(FlashPerp, ());
+        let contract_id = env.register_contract(None, FlashPerp);
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -585,7 +585,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register(FlashPerp, ());
+        let contract_id = env.register_contract(None, FlashPerp);
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -607,7 +607,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register(FlashPerp, ());
+        let contract_id = env.register_contract(None, FlashPerp);
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
