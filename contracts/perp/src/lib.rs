@@ -544,10 +544,11 @@ impl FlashPerp {
 
     fn get_mark_price(env: &Env, symbol: &Symbol) -> Result<i128, Error> {
         // Prefer mock price (used in unit tests); if unavailable, fall back to oracle.
-        let oracle_price = match Self::_mock_oracle_price(symbol.clone()) {
-            Ok(p) => p,
-            Err(_) => fetch_oracle_price(env, symbol.clone())?,
-        };
+        #[cfg(test)]
+        let oracle_price = Self::_mock_oracle_price(symbol.clone())?;
+
+        #[cfg(not(test))]
+        let oracle_price = fetch_oracle_price(env, symbol.clone())?;
 
         // 2. Fetch net open interest and skew scale
         let net_oi = env.storage().persistent()
@@ -580,8 +581,9 @@ impl FlashPerp {
         
         reserve.quote = k / reserve.base;
         
-        // Apply flat fee to quote side (simplified)
-        let fee = (reserve.quote * FEE_BP) / 10_000;
+        // Fee charged on trade notional, not entire pool
+        let trade_notional = (size.abs() * reserve.quote) / reserve.base;
+        let fee = (trade_notional * FEE_BP) / 10_000;
         reserve.quote += fee;
         
         env.storage().persistent().set(&DataKey::Reserves(symbol.clone()), &reserve);
@@ -624,6 +626,7 @@ impl FlashPerp {
     }
 
     // Mock prices for testing - remove when using real oracle
+    #[cfg(test)]
     fn _mock_oracle_price(symbol: Symbol) -> Result<i128, Error> {
         match symbol {
             s if s == symbol_short!("XLMUSD") => Ok(100_000), // $0.10
@@ -631,6 +634,11 @@ impl FlashPerp {
             s if s == symbol_short!("ETHUSD") => Ok(4_000_000_000), // $4,000
             _ => Err(Error::InvalidSymbol),
         }
+    }
+
+    #[cfg(not(test))]
+    fn _mock_oracle_price(_symbol: Symbol) -> Result<i128, Error> {
+        Err(Error::OracleUnavailable)
     }
 
     // ---------------- Permissionless funding keeper ----------------
@@ -647,10 +655,11 @@ impl FlashPerp {
             return Ok(()); // ignore early calls
         }
 
-        let oracle_price = match Self::_mock_oracle_price(symbol.clone()) {
-            Ok(p) => p,
-            Err(_) => fetch_oracle_price(&env, symbol.clone())?,
-        };
+        #[cfg(test)]
+        let oracle_price = Self::_mock_oracle_price(symbol.clone())?;
+
+        #[cfg(not(test))]
+        let oracle_price = fetch_oracle_price(&env, symbol.clone())?;
 
         let mark_price = Self::get_mark_price(&env, &symbol)?;
         let premium_bp = ((mark_price - oracle_price) * 10_000) / oracle_price;
