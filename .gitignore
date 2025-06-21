@@ -1,6 +1,21 @@
-# Rust's output directory
-target
+# Rust
+target/
+Cargo.lock
 
-# Local settings
+# Environment files
+.env
+
+# Editor directories and files
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Stellar/Soroban
 .soroban
 .stellar
