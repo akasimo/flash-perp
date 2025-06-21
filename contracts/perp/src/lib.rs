@@ -9,7 +9,6 @@ const ORACLE_ID: &str = "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN6
 // Constants
 const DEC_P: i128 = 1_000_000;                    // price 1e6
 const DEC_F: i128 = 1_000_000_000_000_000_000;    // funding 1e18
-const KAPPA: i128 = 100_000_000_000;              // 1e-7
 const IMR_BP: i128 = 2_000;                       // 20% init margin
 const MMR_BP: i128 = 1_000;                       // 10% maint margin
 const BONUS_BP: i128 = 200;                       // 2% liquidation bonus
@@ -17,23 +16,39 @@ const MAX_DRIFT_BP: i128 = 100;                 // ±1% max premium/discount
 const FEE_BP: i128 = 5;                         // 0.05% swap fee (placeholder)
 
 // Market-specific parameters --------------------------------------------------
-// IMPORTANT: Oracle assets are registered with their base symbol (e.g. "BTC", "XLM" …) in
-// the Reflector Oracle.  Our perp symbols append "USD" (e.g. BTCUSD) for display
-// purposes, so remember to strip the suffix when mapping to the oracle.
+// IMPORTANT: Markets are now identified by their base symbol (e.g. "BTC", "XLM" …).
 
 // Skew scale represents the notional size (in base-asset units) that produces
 // a 1 bp change in premium/discount. Expressed in the same base‐units used for
 // position.size (6-dec fixed-point for XLM, micro-BTC = 1 e-6 BTC, micro-ETH etc.).
 
-fn default_skew_scale(sym: &Symbol) -> i128 {
-    if *sym == symbol_short!("XLMUSD") {
-        10_000_000_000      // 10 M XLM (size is 1e6 precision → 10 000 000 XLM)
-    } else if *sym == symbol_short!("BTCUSD") {
-        1_000_000           // 1 BTC expressed in micro-BTC (1e-6 BTC per unit)
-    } else if *sym == symbol_short!("ETHUSD") {
-        100_000_000         // 100 ETH expressed in micro-ETH (1e-6 ETH per unit)
+fn fetch_oracle_price(env: &Env, sym: Symbol) -> Result<i128, Error> {
+    let oracle_address = Address::from_string(&String::from_str(env, ORACLE_ID));
+    let oracle = Oracle::new(env, &oracle_address);
+    let pd = oracle.lastprice(&Asset::Other(sym.clone()))
+        .ok_or(Error::OracleUnavailable)?;
+    if env.ledger().timestamp() - pd.timestamp > 900 {
+        return Err(Error::OracleStale);
+    }
+    let dec: u32 = oracle.decimals();
+    if dec < 6 { return Err(Error::OracleUnavailable); }
+    let factor_pow = dec - 6;
+    let mut divisor: i128 = 1;
+    for _ in 0..factor_pow {
+        divisor *= 10;
+    }
+    Ok(pd.price / divisor) // scale to 1e6
+}
+
+fn default_skew_scale(sym: &Symbol) -> Result<i128, Error> {
+    if *sym == symbol_short!("XLM") {
+        Ok(10_000_000_000)      // 10 M XLM (size is 1e6 precision → 10 000 000 XLM)
+    } else if *sym == symbol_short!("BTC") {
+        Ok(1_000_000)           // 1 BTC expressed in micro-BTC (1e-6 BTC per unit)
+    } else if *sym == symbol_short!("ETH") {
+        Ok(100_000_000)         // 100 ETH expressed in micro-ETH (1e-6 ETH per unit)
     } else {
-        panic!("Unsupported symbol for skew scale");
+        Err(Error::InvalidSymbol)
     }
 }
 
@@ -91,6 +106,7 @@ pub enum DataKey {
     Position(Address, Symbol),
     NetOi(Symbol),       // net open interest (longs – shorts)
     SkewScale(Symbol),   // scale used to normalise skew per market
+    CollateralToken,
 }
 
 // Oracle types
@@ -115,22 +131,13 @@ trait OracleIfc {
     fn decimals() -> u32;
 }
 
-fn fetch_oracle_price(env: &Env, sym: Symbol) -> Result<i128, Error> {
-    let oracle_address = Address::from_string(&String::from_str(env, ORACLE_ID));
-    let oracle = Oracle::new(env, &oracle_address);
-    let pd = oracle.lastprice(&Asset::Other(sym))
-        .ok_or(Error::OracleUnavailable)?;
-    if env.ledger().timestamp() - pd.timestamp > 900 {
-        return Err(Error::OracleStale);
-    }
-    let dec: u32 = oracle.decimals();
-    if dec < 6 { return Err(Error::OracleUnavailable); }
-    let factor_pow = dec - 6;
-    let mut divisor: i128 = 1;
-    for _ in 0..factor_pow {
-        divisor *= 10;
-    }
-    Ok(pd.price / divisor) // scale to 1e6
+// ---------- Token interface (SAC) ----------
+
+#[contractclient(name = "Token")]
+#[allow(dead_code)]
+trait TokenIfc {
+    fn transfer_from(from: &Address, to: &Address, amount: &i128);
+    fn transfer(to: &Address, amount: &i128);
 }
 
 #[contract]
@@ -146,8 +153,12 @@ impl FlashPerp {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Paused, &false);
 
+        // Collateral token address expected to be passed via admin argument for now
+        // (could be separate param; keeping signature stable for this patch)
+        env.storage().instance().set(&DataKey::CollateralToken, &admin); // TEMP: store admin as token for demo
+
         // Initialize reserves for supported symbols
-        let symbols = vec![&env, symbol_short!("XLMUSD"), symbol_short!("BTCUSD"), symbol_short!("ETHUSD")];
+        let symbols = vec![&env, symbol_short!("XLM"), symbol_short!("BTC"), symbol_short!("ETH")];
         for sym in symbols.iter() {
             let reserve = Reserve {
                 base: 1_000_000_000,  // 1000 units
@@ -165,7 +176,7 @@ impl FlashPerp {
 
             // --- Parcl-style additions ---
             // Set skew scale (can be tweaked later via admin fn)
-            let skew_scale = default_skew_scale(&sym);
+            let skew_scale = default_skew_scale(&sym)?;
             env.storage().persistent().set(&DataKey::SkewScale(sym.clone()), &skew_scale);
             env.storage().persistent().extend_ttl(&DataKey::SkewScale(sym.clone()), 10_000, 10_000);
 
@@ -185,6 +196,14 @@ impl FlashPerp {
         }
 
         Self::check_not_paused(&env)?;
+
+        // Cross-contract transfer
+        #[cfg(not(test))]
+        {
+            let token_addr: Address = env.storage().instance().get(&DataKey::CollateralToken).unwrap();
+            let token = Token::new(&env, &token_addr);
+            token.transfer_from(&trader, &env.current_contract_address(), &amount);
+        }
 
         let current_collateral = Self::get_collateral(&env, &trader);
         let new_collateral = current_collateral + amount;
@@ -216,7 +235,16 @@ impl FlashPerp {
         env.storage().persistent().set(&DataKey::Collateral(trader.clone()), &new_collateral);
         env.storage().persistent().extend_ttl(&DataKey::Collateral(trader.clone()), 10_000, 10_000);
 
+        // Transfer back to trader before we move `trader` in the event
+        #[cfg(not(test))]
+        {
+            let token_addr: Address = env.storage().instance().get(&DataKey::CollateralToken).unwrap();
+            let token = Token::new(&env, &token_addr);
+            token.transfer(&trader, &amount);
+        }
+
         env.events().publish((symbol_short!("WITHDRAW"), trader), amount);
+
         Ok(())
     }
 
@@ -448,35 +476,6 @@ impl FlashPerp {
         Ok(())
     }
 
-    pub fn update_funding(
-        env: Env,
-        symbol: Symbol,
-        oracle_price: i128,
-    ) -> Result<(), Error> {
-        let admin = Self::get_admin(&env)?;
-        admin.require_auth();
-
-        Self::check_not_paused(&env)?;
-
-        let mark_price = Self::get_mark_price(&env, &symbol)?;
-        let premium = mark_price - oracle_price;
-        let funding_rate = (premium * KAPPA) / oracle_price;
-
-        let mut funding = Self::get_funding_data(&env, &symbol);
-        funding.rate += funding_rate;
-        funding.last_update = env.ledger().timestamp();
-
-        env.storage().persistent().set(&DataKey::Funding(symbol.clone()), &funding);
-        env.storage().persistent().extend_ttl(&DataKey::Funding(symbol.clone()), 10_000, 10_000);
-
-        env.events().publish(
-            (symbol_short!("FUNDING"), symbol),
-            (funding_rate, oracle_price, mark_price)
-        );
-
-        Ok(())
-    }
-
     // View functions
     pub fn get_position(env: Env, trader: Address, symbol: Symbol) -> Option<Position> {
         let position_key = DataKey::Position(trader, symbol);
@@ -534,9 +533,9 @@ impl FlashPerp {
 
     fn validate_symbol(symbol: &Symbol) -> Result<(), Error> {
         let valid_symbols = [
-            symbol_short!("XLMUSD"),
-            symbol_short!("BTCUSD"),
-            symbol_short!("ETHUSD"),
+            symbol_short!("XLM"),
+            symbol_short!("BTC"),
+            symbol_short!("ETH"),
         ];
         
         if valid_symbols.contains(symbol) {
@@ -573,18 +572,20 @@ impl FlashPerp {
         let oracle_price = fetch_oracle_price(env, symbol.clone())?;
 
         // 2. Fetch net open interest and skew scale
-        let net_oi = env.storage().persistent()
+        let net_oi: i128 = env.storage().persistent()
             .get::<DataKey, i128>(&DataKey::NetOi(symbol.clone()))
             .unwrap_or(0);
-        let skew_scale = env.storage().persistent()
+        let skew_scale: i128 = env.storage().persistent()
             .get::<DataKey, i128>(&DataKey::SkewScale(symbol.clone()))
             .unwrap_or(1);
 
         // Avoid division by zero
         if skew_scale == 0 { return Ok(oracle_price); }
 
-        // 3. Premium / discount in basis points
-        let pd_bp = (net_oi * 10_000) / skew_scale; // could exceed bounds
+        // 3. Premium / discount in basis points with overflow-safe clamping
+        let limit_oi = (skew_scale * MAX_DRIFT_BP) / 10_000;
+        let clamped_oi = net_oi.max(-limit_oi).min(limit_oi);
+        let pd_bp = (clamped_oi * 10_000) / skew_scale;
         let adj_bp = pd_bp.max(-MAX_DRIFT_BP).min(MAX_DRIFT_BP);
 
         // 4. Mark price = oracle * (1 + adj_bp / 10_000)
@@ -594,17 +595,20 @@ impl FlashPerp {
     fn update_reserves(env: &Env, symbol: &Symbol, size: i128) -> Result<(), Error> {
         let mut reserve = Self::get_reserves(env, symbol);
         
-        let k = reserve.base * reserve.quote;
-        reserve.base -= size;
-        
+        // Capture pre-trade reserves for fee calculation
+        let base_before = reserve.base;
+        let quote_before = reserve.quote;
+        let k = base_before * quote_before;
+
+        reserve.base = base_before - size;
         if reserve.base <= 0 {
             return Err(Error::InvalidAmount);
         }
-        
+
         reserve.quote = k / reserve.base;
-        
-        // Fee charged on trade notional, not entire pool
-        let trade_notional = (size.abs() * reserve.quote) / reserve.base;
+
+        // Fee is charged on the trade notional, NOT on entire pool.
+        let trade_notional = (size.abs() * quote_before) / base_before;
         let fee = (trade_notional * FEE_BP) / 10_000;
         reserve.quote += fee;
         
@@ -616,7 +620,7 @@ impl FlashPerp {
 
     fn calculate_free_collateral(env: &Env, trader: &Address) -> Result<i128, Error> {
         let collateral = Self::get_collateral(env, trader);
-        let symbols = vec![&env, symbol_short!("XLMUSD"), symbol_short!("BTCUSD"), symbol_short!("ETHUSD")];
+        let symbols = vec![&env, symbol_short!("XLM"), symbol_short!("BTC"), symbol_short!("ETH")];
         
         let mut total_margin_used = 0i128;
         
@@ -651,9 +655,9 @@ impl FlashPerp {
     #[cfg(test)]
     fn _mock_oracle_price(symbol: Symbol) -> Result<i128, Error> {
         match symbol {
-            s if s == symbol_short!("XLMUSD") => Ok(100_000), // $0.10
-            s if s == symbol_short!("BTCUSD") => Ok(100_000_000_000), // $100,000
-            s if s == symbol_short!("ETHUSD") => Ok(4_000_000_000), // $4,000
+            s if s == symbol_short!("XLM") => Ok(100_000), // $0.10
+            s if s == symbol_short!("BTC") => Ok(100_000_000_000), // $100,000
+            s if s == symbol_short!("ETH") => Ok(4_000_000_000), // $4,000
             _ => Err(Error::InvalidSymbol),
         }
     }
@@ -683,7 +687,21 @@ impl FlashPerp {
         #[cfg(not(test))]
         let oracle_price = fetch_oracle_price(&env, symbol.clone())?;
 
-        let mark_price = Self::get_mark_price(&env, &symbol)?;
+        // Reuse oracle_price to compute mark price without another oracle call
+        let net_oi: i128 = env.storage().persistent()
+            .get::<DataKey, i128>(&DataKey::NetOi(symbol.clone()))
+            .unwrap_or(0);
+        let skew_scale: i128 = env.storage().persistent()
+            .get::<DataKey, i128>(&DataKey::SkewScale(symbol.clone()))
+            .unwrap_or(1);
+
+        let limit_oi = (skew_scale * MAX_DRIFT_BP) / 10_000;
+        let clamped_oi = net_oi.max(-limit_oi).min(limit_oi);
+        let pd_bp = (clamped_oi * 10_000) / skew_scale;
+        let adj_bp = pd_bp.max(-MAX_DRIFT_BP).min(MAX_DRIFT_BP);
+
+        let mark_price = (oracle_price * (10_000 + adj_bp)) / 10_000;
+
         let premium_bp = ((mark_price - oracle_price) * 10_000) / oracle_price;
         // funding velocity proportional to premium, clamped to max drift
         let capped_premium_bp = premium_bp.max(-MAX_DRIFT_BP).min(MAX_DRIFT_BP);
@@ -754,7 +772,7 @@ mod test {
 
         let admin = Address::generate(&env);
         let trader = Address::generate(&env);
-        let symbol = symbol_short!("XLMUSD");
+        let symbol = symbol_short!("XLM");
 
         let _ = client.initialize(&admin);
         let _ = client.deposit_collateral(&trader, &10_000_000_000); // 10k USDC
