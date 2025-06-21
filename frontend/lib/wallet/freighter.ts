@@ -1,44 +1,51 @@
 // Freighter wallet integration
 
+import { 
+  isConnected,
+  isAllowed,
+  setAllowed,
+  requestAccess,
+  signTransaction,
+  getNetwork,
+  getNetworkDetails,
+  getPublicKey,
+} from '@stellar/freighter-api';
 import { NETWORK, NETWORK_PASSPHRASE } from '@/lib/utils/constants';
-import type { FreighterAPI, WalletManager } from '@/types/wallet';
+import type { WalletManager } from '@/types/wallet';
 
 export class FreighterWalletManager implements WalletManager {
-  private freighter: FreighterAPI | null = null;
   private currentAddress: string | null = null;
   private accountChangeCallbacks: ((address: string | null) => void)[] = [];
   private networkChangeCallbacks: ((network: string) => void)[] = [];
 
   constructor() {
-    this.initializeFreighter();
     this.setupEventListeners();
-  }
-
-  private initializeFreighter(): void {
-    if (typeof window !== 'undefined' && window.freighter) {
-      this.freighter = window.freighter;
-    }
   }
 
   private async waitForFreighter(timeout = 10000): Promise<boolean> {
     return new Promise((resolve) => {
       const startTime = Date.now();
       
-      const checkFreighter = () => {
-        if (typeof window !== 'undefined' && window.freighter) {
-          this.freighter = window.freighter;
+      const checkFreighter = async () => {
+        try {
+          // Use the official API to check if Freighter is available
+          const connected = await isConnected();
+          console.log('Freighter connection check:', connected);
           resolve(true);
           return;
+        } catch (error) {
+          // Freighter not available yet
+          if (Date.now() - startTime > timeout) {
+            console.log('Freighter detection timeout after', timeout, 'ms');
+            resolve(false);
+            return;
+          }
+          
+          setTimeout(checkFreighter, 500); // Check every 500ms
         }
-        
-        if (Date.now() - startTime > timeout) {
-          resolve(false);
-          return;
-        }
-        
-        setTimeout(checkFreighter, 100);
       };
       
+      // Start checking immediately
       checkFreighter();
     });
   }
@@ -55,11 +62,11 @@ export class FreighterWalletManager implements WalletManager {
   }
 
   private async checkAccountChange(): Promise<void> {
-    if (!this.freighter || !this.isConnected()) return;
+    if (!this.isConnected()) return;
 
     try {
-      const isStillConnected = await this.freighter.isConnected();
-      if (!isStillConnected && this.currentAddress) {
+      const stillConnected = await isConnected();
+      if (!stillConnected && this.currentAddress) {
         // Account disconnected
         this.currentAddress = null;
         this.accountChangeCallbacks.forEach(callback => callback(null));
@@ -70,20 +77,35 @@ export class FreighterWalletManager implements WalletManager {
   }
 
   isFreighterInstalled(): boolean {
-    return typeof window !== 'undefined' && 'freighter' in window && !!window.freighter;
+    // We'll use a try-catch approach since the official API handles detection
+    try {
+      return typeof window !== 'undefined';
+    } catch {
+      return false;
+    }
   }
 
   async isFreighterInstalledAsync(): Promise<boolean> {
-    if (this.isFreighterInstalled()) {
-      return true;
-    }
+    console.log('Checking for Freighter installation...');
     
-    // Wait for Freighter to load (it might be injected asynchronously)
-    return await this.waitForFreighter(5000);
+    try {
+      // Use the official API to check
+      await isConnected();
+      console.log('Freighter is available');
+      return true;
+    } catch (error) {
+      console.log('Freighter not available immediately, waiting...');
+      // Wait for Freighter to load
+      const result = await this.waitForFreighter(10000);
+      console.log('Freighter async check result:', result);
+      return result;
+    }
   }
 
   async connect(): Promise<string | null> {
     try {
+      console.log('Starting Freighter connection...');
+      
       // First, wait for Freighter to be available
       const isAvailable = await this.isFreighterInstalledAsync();
       
@@ -91,21 +113,26 @@ export class FreighterWalletManager implements WalletManager {
         throw new Error('Freighter wallet not found. Please install it from freighter.app and refresh the page.');
       }
 
-      if (!this.freighter) {
-        this.initializeFreighter();
+      // Check if already allowed
+      const allowed = await isAllowed();
+      console.log('Freighter access allowed:', allowed);
+      
+      if (!allowed) {
+        // Request access to the wallet
+        console.log('Requesting Freighter access...');
+        await requestAccess();
       }
 
-      // Double-check we have the freighter object
-      if (!this.freighter) {
-        throw new Error('Freighter wallet is not properly initialized. Please refresh the page and try again.');
-      }
-
-      // Request access to the wallet
-      const { publicKey } = await this.freighter.requestAccess();
+      // Get the public key
+      const publicKey = await getPublicKey();
+      console.log('Got public key:', publicKey);
       
       // Verify we're on the correct network
-      const network = await this.freighter.getNetwork();
+      const network = await getNetwork();
+      console.log('Current network:', network);
+      
       if (network !== NETWORK.TESTNET) {
+        console.log('Switching to testnet...');
         await this.switchNetwork(NETWORK.TESTNET);
       }
 
@@ -118,11 +145,14 @@ export class FreighterWalletManager implements WalletManager {
       
       // Provide more specific error messages
       if (error instanceof Error) {
-        if (error.message.includes('User declined access')) {
+        if (error.message.includes('User declined') || error.message.includes('denied')) {
           throw new Error('Connection cancelled. Please try again and approve the connection request.');
         }
         if (error.message.includes('not found') || error.message.includes('install')) {
           throw error; // Re-throw installation errors as-is
+        }
+        if (error.message.includes('not available')) {
+          throw new Error('Freighter wallet not found. Please install it from freighter.app and refresh the page.');
         }
       }
       
@@ -144,16 +174,12 @@ export class FreighterWalletManager implements WalletManager {
   }
 
   async signTransaction(xdr: string): Promise<string> {
-    if (!this.freighter) {
-      throw new Error('Freighter wallet not available');
-    }
-
     if (!this.isConnected()) {
       throw new Error('Wallet not connected');
     }
 
     try {
-      const signedXdr = await this.freighter.signTransaction(xdr, {
+      const signedXdr = await signTransaction(xdr, {
         network: NETWORK.TESTNET,
         accountToSign: this.currentAddress!,
       });
@@ -166,12 +192,8 @@ export class FreighterWalletManager implements WalletManager {
   }
 
   async getNetwork(): Promise<string> {
-    if (!this.freighter) {
-      throw new Error('Freighter wallet not available');
-    }
-
     try {
-      return await this.freighter.getNetwork();
+      return await getNetwork();
     } catch (error) {
       console.error('Error getting network:', error);
       throw new Error('Failed to get network');
@@ -179,16 +201,16 @@ export class FreighterWalletManager implements WalletManager {
   }
 
   async switchNetwork(network: string): Promise<void> {
-    if (!this.freighter) {
-      throw new Error('Freighter wallet not available');
-    }
-
     try {
-      await this.freighter.setNetwork(network);
+      // Note: Freighter API doesn't have a direct setNetwork function
+      // Users need to manually switch networks in the extension
+      console.log('Please switch to', network, 'network in Freighter');
+      
+      // For now, we'll just update our callbacks
       this.networkChangeCallbacks.forEach(callback => callback(network));
     } catch (error) {
       console.error('Error switching network:', error);
-      throw new Error('Failed to switch network');
+      throw new Error('Please manually switch to testnet in Freighter extension');
     }
   }
 
@@ -214,7 +236,7 @@ export class FreighterWalletManager implements WalletManager {
   async ensureCorrectNetwork(): Promise<void> {
     const isCorrect = await this.isOnCorrectNetwork();
     if (!isCorrect) {
-      await this.switchNetwork(NETWORK.TESTNET);
+      throw new Error('Please switch to Stellar Testnet in your Freighter extension');
     }
   }
 

@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import AppHeader from './components/Header';
 import { useWallet } from '@/lib/hooks/useWallet';
+import FreighterDebug from '@/components/debug/FreighterDebug';
 
 export default function TradingApp() {
   const { state } = useWallet();
@@ -270,6 +271,9 @@ export default function TradingApp() {
           </div>
         </div>
       </div>
+      
+      {/* Debug component - remove in production */}
+      <FreighterDebug />
     </div>
   );
 }

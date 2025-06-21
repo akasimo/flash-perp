@@ -8,19 +8,8 @@ export interface WalletState {
   error: string | null;
 }
 
-export interface FreighterAPI {
-  isConnected(): Promise<boolean>;
-  requestAccess(): Promise<{ publicKey: string }>;
-  signTransaction(
-    xdr: string,
-    options?: {
-      network?: string;
-      accountToSign?: string;
-    }
-  ): Promise<string>;
-  getNetwork(): Promise<string>;
-  setNetwork(network: string): Promise<void>;
-}
+// FreighterAPI is now provided by @stellar/freighter-api package
+// No need to define it here as we're using the official functions directly
 
 export interface WalletManager {
   // Connection management
@@ -49,9 +38,4 @@ export interface WalletContextType {
   switchNetwork: (network: string) => Promise<void>;
 }
 
-// Freighter window extension
-declare global {
-  interface Window {
-    freighter?: FreighterAPI;
-  }
-}
+// Window extension is now handled by @stellar/freighter-api package

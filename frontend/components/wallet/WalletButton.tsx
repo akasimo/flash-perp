@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import Button from '@/components/ui/Button';
 import { useWallet, useNetworkStatus } from '@/lib/hooks/useWallet';
+import { useIsMounted } from '@/lib/hooks/useIsMounted';
 import WalletModal from './WalletModal';
 
 interface WalletButtonProps {
@@ -18,9 +19,24 @@ export default function WalletButton({
   variant = 'primary', 
   size = 'md' 
 }: WalletButtonProps) {
+  const mounted = useIsMounted();
   const { state, connect, disconnect } = useWallet();
   const { needsNetworkSwitch } = useNetworkStatus();
   const [showModal, setShowModal] = useState(false);
+
+  // Don't render anything until mounted (prevents hydration issues)
+  if (!mounted) {
+    return (
+      <Button
+        variant={variant}
+        size={size}
+        className={className}
+        disabled
+      >
+        Loading...
+      </Button>
+    );
+  }
 
   // Format address for display
   const formatAddress = (address: string) => {

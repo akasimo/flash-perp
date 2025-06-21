@@ -6,6 +6,7 @@ import React, { useState, useEffect, useCallback, createContext, useContext } fr
 import { freighterWallet } from '@/lib/wallet/freighter';
 import type { WalletState, WalletContextType } from '@/types/wallet';
 import { ERRORS, SUCCESS } from '@/lib/utils/constants';
+import { useIsMounted } from './useIsMounted';
 
 // Create wallet context
 const WalletContext = createContext<WalletContextType | null>(null);
@@ -21,6 +22,7 @@ const initialState: WalletState = {
 
 // Wallet provider component
 export function WalletProvider({ children }: { children: React.ReactNode }) {
+  const mounted = useIsMounted();
   const [state, setState] = useState<WalletState>(initialState);
 
   // Update wallet state
@@ -30,11 +32,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   // Connect wallet
   const connect = useCallback(async () => {
-    if (state.isConnecting) return;
+    if (state.isConnecting || !mounted) return;
 
     updateState({ isConnecting: true, error: null });
 
     try {
+      console.log('Starting wallet connection...');
       // Attempt to connect (this now includes async installation check)
       const address = await freighterWallet.connect();
       
@@ -62,7 +65,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       });
       console.error('Wallet connection error:', error);
     }
-  }, [state.isConnecting, updateState]);
+  }, [state.isConnecting, mounted, updateState]);
 
   // Disconnect wallet
   const disconnect = useCallback(() => {
@@ -103,8 +106,13 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   // Setup event listeners
   useEffect(() => {
+    if (!mounted) return;
+
+    console.log('Setting up wallet event listeners...');
+
     // Listen for account changes
     freighterWallet.onAccountChange((address) => {
+      console.log('Account changed:', address);
       if (address) {
         updateState({ address, isConnected: true });
       } else {
@@ -114,24 +122,27 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for network changes
     freighterWallet.onNetworkChange((network) => {
+      console.log('Network changed:', network);
       updateState({ network });
     });
 
     // Check if already connected on mount
     if (freighterWallet.isConnected()) {
       const address = freighterWallet.getAddress();
+      console.log('Found existing connection:', address);
       if (address) {
         updateState({ address, isConnected: true });
         
         // Also get current network
         freighterWallet.getNetwork().then((network) => {
+          console.log('Current network:', network);
           updateState({ network });
         }).catch((error) => {
           console.error('Error getting network on mount:', error);
         });
       }
     }
-  }, [updateState]);
+  }, [mounted, updateState]);
 
   const contextValue: WalletContextType = {
     state,
