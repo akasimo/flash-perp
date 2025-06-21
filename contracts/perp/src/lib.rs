@@ -55,6 +55,7 @@ pub enum Error {
     InvalidSymbol = 12,
     ZeroAmount = 13,
     SelfLiquidation = 14,
+    SlippageExceeded = 15,
 }
 
 #[contracttype]
@@ -225,6 +226,7 @@ impl FlashPerp {
         symbol: Symbol,
         size: i128,
         margin: i128,
+        limit_price: i128,
     ) -> Result<(), Error> {
         trader.require_auth();
 
@@ -236,6 +238,12 @@ impl FlashPerp {
         Self::validate_symbol(&symbol)?;
 
         let mark_price = Self::get_mark_price(&env, &symbol)?;
+
+        // Slippage check
+        if (size > 0 && mark_price > limit_price) || (size < 0 && mark_price < limit_price) {
+            return Err(Error::SlippageExceeded);
+        }
+
         let notional = (size.abs() * mark_price) / DEC_P;
         let required_margin = (notional * IMR_BP) / 10_000;
 
@@ -296,6 +304,7 @@ impl FlashPerp {
         trader: Address,
         symbol: Symbol,
         size: i128,
+        limit_price: i128,
     ) -> Result<(), Error> {
         trader.require_auth();
 
@@ -316,6 +325,11 @@ impl FlashPerp {
         }
 
         let mark_price = Self::get_mark_price(&env, &symbol)?;
+        
+        // Slippage check – for reducing longs want min price, for reducing shorts want max
+        if (size > 0 && mark_price < limit_price) || (size < 0 && mark_price > limit_price) {
+            return Err(Error::SlippageExceeded);
+        }
         
         // Calculate PnL for the closing portion
         let closing_notional = (size.abs() * mark_price) / DEC_P;
@@ -745,17 +759,26 @@ mod test {
         let _ = client.initialize(&admin);
         let _ = client.deposit_collateral(&trader, &10_000_000_000); // 10k USDC
 
+        // Determine current mark price for slippage limit
+        let mark = client.get_mark_price_view(&symbol);
+
         // Open long position
-        let _ = client.open_position(&trader, &symbol, &10_000_000, &2_000_000_000); // 10 XLM, 2k USDC margin
+        let _ = client.open_position(&trader, &symbol, &10_000_000, &2_000_000_000, &mark); // limit = current price
 
         let position = client.get_position(&trader, &symbol).unwrap();
         assert_eq!(position.size, 10_000_000);
         assert_eq!(position.margin, 2_000_000_000);
 
-        // Close half
-        let _ = client.close_position(&trader, &symbol, &5_000_000);
+        let mark2 = client.get_mark_price_view(&symbol);
+        // Close half with limit
+        let _ = client.close_position(&trader, &symbol, &5_000_000, &mark2);
 
         let position = client.get_position(&trader, &symbol).unwrap();
         assert_eq!(position.size, 5_000_000);
+
+        // --- Slippage failure case ---
+        let bad_limit = mark - 1; // for long position, too low
+        let res = client.try_open_position(&trader, &symbol, &1_000_000, &200_000_000, &bad_limit);
+        assert_eq!(res, Err(Ok(Error::SlippageExceeded)));
     }
 }
