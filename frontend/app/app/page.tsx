@@ -9,11 +9,11 @@ import MarketSelector from '@/components/trading/MarketSelector';
 // import OrderBookPanel from '@/components/trading/OrderBookPanel'; // Removed for v1
 import ChartPanel from '@/components/trading/ChartPanel';
 import TradingPanel from '@/components/trading/TradingPanel';
+import BottomPanel from '@/components/trading/BottomPanel';
 
 export default function TradingApp() {
   const { state, connect } = useWallet();
   const [selectedMarket, setSelectedMarket] = useState('BTCUSD');
-  const [showCollateralModal, setShowCollateralModal] = useState(false);
 
   // Show connection prompt if wallet not connected
   if (!state.isConnected) {
@@ -49,7 +49,7 @@ export default function TradingApp() {
   return (
     <div className="h-screen bg-gray-950 flex flex-col overflow-hidden">
       {/* Top bar */}
-      <TopBar onCollateralClick={() => setShowCollateralModal(true)} />
+      <TopBar />
       
       {/* Market selector bar */}
       <div className="border-b border-gray-800 bg-gray-950 p-3">
@@ -61,16 +61,24 @@ export default function TradingApp() {
         </div>
       </div>
       
-      {/* Two-column trading layout (Chart expanded, no OrderBook) */}
-      <div className="flex-1 grid grid-cols-12 overflow-hidden">
-        {/* Left column - Chart (expanded) */}
-        <div className="col-span-8 lg:col-span-9">
-          <ChartPanel selectedMarket={selectedMarket} />
+      {/* Main content area with positions at bottom */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Two-column trading layout (Chart expanded, no OrderBook) */}
+        <div className="flex-1 grid grid-cols-12 overflow-hidden">
+          {/* Left column - Chart (expanded) */}
+          <div className="col-span-8 lg:col-span-9">
+            <ChartPanel selectedMarket={selectedMarket} />
+          </div>
+          
+          {/* Right column - Trading panel */}
+          <div className="col-span-4 lg:col-span-3">
+            <TradingPanel />
+          </div>
         </div>
         
-        {/* Right column - Trading panel */}
-        <div className="col-span-4 lg:col-span-3">
-          <TradingPanel />
+        {/* Bottom panel - Positions/Orders */}
+        <div className="h-64 border-t border-gray-800">
+          <BottomPanel />
         </div>
       </div>
     </div>

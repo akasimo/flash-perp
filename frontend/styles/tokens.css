@@ -1,0 +1,52 @@
+/* Design tokens for FlashPerp trading interface */
+
+:root {
+  /* Colors - Professional trading theme */
+  --color-background: #0a0b0d;
+  --color-surface-1: #111418;
+  --color-surface-2: #1a1d21;
+  --color-surface-3: #252a30;
+  --color-border: #2a2f3c;
+  
+  /* Text colors */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a1a7b3;
+  --color-text-muted: #6b7280;
+  
+  /* Accent colors */
+  --color-green: #26a69a;
+  --color-red: #ef534f;
+  --color-blue: #3b82f6;
+  --color-yellow: #f59e0b;
+  
+  /* Spacing scale (8pt grid) */
+  --space-1: 0.25rem; /* 4px */
+  --space-2: 0.5rem;  /* 8px */
+  --space-3: 0.75rem; /* 12px */
+  --space-4: 1rem;    /* 16px */
+  --space-5: 1.25rem; /* 20px */
+  --space-6: 1.5rem;  /* 24px */
+  --space-8: 2rem;    /* 32px */
+  
+  /* Border radius */
+  --radius-sm: 0.25rem; /* 4px */
+  --radius-md: 0.375rem; /* 6px */
+  --radius-lg: 0.5rem; /* 8px */
+  
+  /* Typography scale */
+  --font-size-xs: 0.75rem; /* 12px */
+  --font-size-sm: 0.8125rem; /* 13px */
+  --font-size-base: 0.875rem; /* 14px */
+  --font-size-lg: 1rem; /* 16px */
+  --font-size-xl: 1.125rem; /* 18px */
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  
+  /* Z-index scale */
+  --z-dropdown: 10;
+  --z-modal: 50;
+  --z-tooltip: 60;
+}

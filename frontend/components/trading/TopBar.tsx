@@ -5,13 +5,11 @@
 import React, { useState } from 'react';
 import WalletButton from '@/components/wallet/WalletButton';
 import { useNetworkStatus } from '@/lib/hooks/useWallet';
+import CollateralModal from '@/components/trading/CollateralModal';
 
-interface TopBarProps {
-  onCollateralClick?: () => void;
-}
-
-export default function TopBar({ onCollateralClick }: TopBarProps) {
+export default function TopBar() {
   const { currentNetwork, needsNetworkSwitch } = useNetworkStatus();
+  const [showCollateral, setShowCollateral] = useState(false);
 
   // Network badge color
   const getNetworkBadgeColor = () => {
@@ -39,17 +37,20 @@ export default function TopBar({ onCollateralClick }: TopBarProps) {
 
       {/* Right side - Actions */}
       <div className="flex items-center space-x-2">
-        {/* Collateral button */}
+        {/* Collateral operations button */}
         <button
-          onClick={onCollateralClick}
+          onClick={() => setShowCollateral(true)}
           className="px-3 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-800 rounded transition-colors"
         >
-          Collateral
+          Collateral Operations
         </button>
         
         {/* Wallet button */}
         <WalletButton variant="outline" size="sm" />
       </div>
+      
+      {/* Collateral Modal */}
+      <CollateralModal isOpen={showCollateral} onClose={() => setShowCollateral(false)} />
     </div>
   );
 }

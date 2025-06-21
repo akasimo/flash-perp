@@ -4,6 +4,7 @@
 
 import React, { Suspense } from 'react';
 import dynamic from 'next/dynamic';
+import Card from '@/components/ui/Card';
 
 // Dynamically import TradingView chart to avoid SSR issues
 const TradingViewChart = dynamic(
@@ -47,22 +48,31 @@ export default function ChartPanel({ selectedMarket }: ChartPanelProps) {
   const marketInfo = getMarketInfo(selectedMarket);
 
   return (
-    <div className="bg-gray-950 flex flex-col h-full border-t border-gray-800">
+    <Card className="flex flex-col h-full" noPadding>
       {/* Chart header */}
-      <div className="border-b border-gray-800 px-4 py-2 flex-shrink-0">
+      <div className="border-b border-gray-800 px-4 py-3 flex-shrink-0 bg-gray-950/50">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <h2 className="text-white font-semibold text-sm">{selectedMarket}</h2>
-            <div className="flex items-center space-x-3 text-xs">
-              <span className="text-gray-400">Mark:</span>
-              <span className="text-white">{marketInfo.price}</span>
-              <span className={marketInfo.changeColor}>{marketInfo.change}</span>
+          <div className="flex items-center space-x-6">
+            <div>
+              <h2 className="text-white font-semibold text-base">{selectedMarket}</h2>
+              <div className="flex items-center space-x-4 mt-1">
+                <div className="flex items-center space-x-2">
+                  <span className="text-gray-500 text-xs">Mark</span>
+                  <span className="text-white font-medium">{marketInfo.price}</span>
+                </div>
+                <span className={`font-medium ${marketInfo.changeColor}`}>{marketInfo.change}</span>
+              </div>
             </div>
           </div>
           
-          {/* TradingView handles intervals internally */}
-          <div className="text-xs text-gray-500">
-            Live Data • TradingView
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-gray-500">Funding</span>
+              <span className="text-xs font-medium text-green-400">+0.01%</span>
+            </div>
+            <div className="text-xs text-gray-500">
+              Live Data • TradingView
+            </div>
           </div>
         </div>
       </div>
@@ -73,6 +83,6 @@ export default function ChartPanel({ selectedMarket }: ChartPanelProps) {
           <TradingViewChart symbol={selectedMarket} />
         </Suspense>
       </div>
-    </div>
+    </Card>
   );
 }
