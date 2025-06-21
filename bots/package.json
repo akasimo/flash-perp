@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "funding": "tsx src/funding_bot.ts",
-    "liquidator": "tsx src/liquidator_bot.ts"
+    "liquidator": "tsx src/liquidator_bot.ts",
+    "oracle": "tsx src/check_oracle.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.0.0",
