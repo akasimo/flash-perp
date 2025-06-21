@@ -13,6 +13,8 @@ const KAPPA: i128 = 100_000_000_000;              // 1e-7
 const IMR_BP: i128 = 2_000;                       // 20% init margin
 const MMR_BP: i128 = 1_000;                       // 10% maint margin
 const BONUS_BP: i128 = 200;                       // 2% liquidation bonus
+const MAX_DRIFT_BP: i128 = 100;                 // ±1% max premium/discount
+const FEE_BP: i128 = 5;                         // 0.05% swap fee (placeholder)
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[contracterror]
@@ -65,6 +67,8 @@ pub enum DataKey {
     Funding(Symbol),
     Collateral(Address),
     Position(Address, Symbol),
+    NetOi(Symbol),       // net open interest (longs – shorts)
+    SkewScale(Symbol),   // scale used to normalise skew per market
 }
 
 // Oracle types
@@ -128,6 +132,24 @@ impl FlashPerp {
             };
             env.storage().persistent().set(&DataKey::Funding(sym.clone()), &funding);
             env.storage().persistent().extend_ttl(&DataKey::Funding(sym.clone()), 10_000, 10_000);
+
+            // --- Parcl-style additions ---
+            // Set skew scale (can be tweaked later via admin fn)
+            let skew_scale: i128 = if sym.clone() == symbol_short!("XLMUSD") {
+                10_000_000_000
+            } else if sym.clone() == symbol_short!("BTCUSD") {
+                1_000_000
+            } else if sym.clone() == symbol_short!("ETHUSD") {
+                100_000_000
+            } else {
+                1
+            };
+            env.storage().persistent().set(&DataKey::SkewScale(sym.clone()), &skew_scale);
+            env.storage().persistent().extend_ttl(&DataKey::SkewScale(sym.clone()), 10_000, 10_000);
+
+            // Net OI starts at zero for each market
+            env.storage().persistent().set(&DataKey::NetOi(sym.clone()), &0i128);
+            env.storage().persistent().extend_ttl(&DataKey::NetOi(sym.clone()), 10_000, 10_000);
         }
 
         Ok(())
@@ -208,6 +230,12 @@ impl FlashPerp {
         // Update AMM reserves
         Self::update_reserves(&env, &symbol, size)?;
 
+        // --- update net OI ---
+        let net_key = DataKey::NetOi(symbol.clone());
+        let current_oi = env.storage().persistent().get::<DataKey, i128>(&net_key).unwrap_or(0);
+        env.storage().persistent().set(&net_key, &(current_oi + size));
+        env.storage().persistent().extend_ttl(&net_key, 10_000, 10_000);
+
         // Get current funding index
         let funding = Self::get_funding_data(&env, &symbol);
 
@@ -287,6 +315,12 @@ impl FlashPerp {
         // Update AMM reserves
         Self::update_reserves(&env, &symbol, -size)?;
 
+        // --- update net OI ---
+        let net_key = DataKey::NetOi(symbol.clone());
+        let cur_oi = env.storage().persistent().get::<DataKey, i128>(&net_key).unwrap_or(0);
+        env.storage().persistent().set(&net_key, &(cur_oi - size));
+        env.storage().persistent().extend_ttl(&net_key, 10_000, 10_000);
+
         // Calculate funding payment
         let funding = Self::get_funding_data(&env, &symbol);
         let funding_payment = Self::calculate_funding_payment(&position, &funding);
@@ -353,6 +387,12 @@ impl FlashPerp {
 
         // Update reserves
         Self::update_reserves(&env, &symbol, -position.size)?;
+
+        // --- update net OI ---
+        let net_key = DataKey::NetOi(symbol.clone());
+        let cur_oi = env.storage().persistent().get::<DataKey, i128>(&net_key).unwrap_or(0);
+        env.storage().persistent().set(&net_key, &(cur_oi - position.size));
+        env.storage().persistent().extend_ttl(&net_key, 10_000, 10_000);
 
         // Remove position
         env.storage().persistent().remove(&position_key);
@@ -490,17 +530,34 @@ impl FlashPerp {
     }
 
     fn get_mark_price(env: &Env, symbol: &Symbol) -> Result<i128, Error> {
-        let reserve = Self::get_reserves(env, symbol);
-        if reserve.base == 0 {
-            return Err(Error::InvalidAmount);
-        }
-        Ok((reserve.quote * DEC_P) / reserve.base)
+        // Prefer mock price (used in unit tests); if unavailable, fall back to oracle.
+        let oracle_price = match Self::_mock_oracle_price(symbol.clone()) {
+            Ok(p) => p,
+            Err(_) => fetch_oracle_price(env, symbol.clone())?,
+        };
+
+        // 2. Fetch net open interest and skew scale
+        let net_oi = env.storage().persistent()
+            .get::<DataKey, i128>(&DataKey::NetOi(symbol.clone()))
+            .unwrap_or(0);
+        let skew_scale = env.storage().persistent()
+            .get::<DataKey, i128>(&DataKey::SkewScale(symbol.clone()))
+            .unwrap_or(1);
+
+        // Avoid division by zero
+        if skew_scale == 0 { return Ok(oracle_price); }
+
+        // 3. Premium / discount in basis points
+        let pd_bp = (net_oi * 10_000) / skew_scale; // could exceed bounds
+        let adj_bp = pd_bp.max(-MAX_DRIFT_BP).min(MAX_DRIFT_BP);
+
+        // 4. Mark price = oracle * (1 + adj_bp / 10_000)
+        Ok((oracle_price * (10_000 + adj_bp)) / 10_000)
     }
 
     fn update_reserves(env: &Env, symbol: &Symbol, size: i128) -> Result<(), Error> {
         let mut reserve = Self::get_reserves(env, symbol);
         
-        // x*y=k AMM logic
         let k = reserve.base * reserve.quote;
         reserve.base -= size;
         
@@ -509,6 +566,10 @@ impl FlashPerp {
         }
         
         reserve.quote = k / reserve.base;
+        
+        // Apply flat fee to quote side (simplified)
+        let fee = (reserve.quote * FEE_BP) / 10_000;
+        reserve.quote += fee;
         
         env.storage().persistent().set(&DataKey::Reserves(symbol.clone()), &reserve);
         env.storage().persistent().extend_ttl(&DataKey::Reserves(symbol.clone()), 10_000, 10_000);
@@ -557,6 +618,42 @@ impl FlashPerp {
             s if s == symbol_short!("ETHUSD") => Ok(4_000_000_000), // $4,000
             _ => Err(Error::InvalidSymbol),
         }
+    }
+
+    // ---------------- Permissionless funding keeper ----------------
+    pub fn poke_funding(env: Env, symbol: Symbol) -> Result<(), Error> {
+        Self::check_not_paused(&env)?;
+        Self::validate_symbol(&symbol)?;
+
+        const FUNDING_PERIOD: u64 = 1800; // 30 minutes
+        const MAX_FUNDING_VEL_BP: i128 = 1_000; // 10% per day
+
+        let mut funding = Self::get_funding_data(&env, &symbol);
+        let now = env.ledger().timestamp();
+        if now - funding.last_update < FUNDING_PERIOD {
+            return Ok(()); // ignore early calls
+        }
+
+        let oracle_price = match Self::_mock_oracle_price(symbol.clone()) {
+            Ok(p) => p,
+            Err(_) => fetch_oracle_price(&env, symbol.clone())?,
+        };
+
+        let mark_price = Self::get_mark_price(&env, &symbol)?;
+        let premium_bp = ((mark_price - oracle_price) * 10_000) / oracle_price;
+        // funding velocity proportional to premium, clamped to max drift
+        let capped_premium_bp = premium_bp.max(-MAX_DRIFT_BP).min(MAX_DRIFT_BP);
+        let delta_rate = capped_premium_bp * MAX_FUNDING_VEL_BP / MAX_DRIFT_BP
+            * (now - funding.last_update) as i128 / 86_400; // per-day basis
+
+        funding.rate += delta_rate;
+        funding.last_update = now;
+
+        env.storage().persistent().set(&DataKey::Funding(symbol.clone()), &funding);
+        env.storage().persistent().extend_ttl(&DataKey::Funding(symbol.clone()), 10_000, 10_000);
+
+        env.events().publish((symbol_short!("FUNDING"), symbol), (delta_rate, oracle_price, mark_price));
+        Ok(())
     }
 }
 
