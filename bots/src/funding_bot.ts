@@ -1,5 +1,5 @@
-import { Keypair, Networks, Operation, TransactionBuilder, StrKey, xdr, scValToNative, nativeToScVal, Contract } from '@stellar/stellar-sdk';
-import { SorobanRpc } from '@stellar/stellar-sdk';
+import { Keypair, Networks, TransactionBuilder, xdr, scValToNative, nativeToScVal, Contract } from '@stellar/stellar-sdk';
+import { rpc } from '@stellar/stellar-sdk';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -10,7 +10,7 @@ interface OraclePriceData {
 }
 
 class FundingBot {
-  private server: SorobanRpc.Server;
+  private server: rpc.Server;
   private keypair: Keypair;
   private perpContract: string;
   private oracleContract: string;
@@ -18,7 +18,7 @@ class FundingBot {
 
   constructor() {
     const rpcUrl = process.env.RPC_URL || 'https://soroban-testnet.stellar.org';
-    this.server = new SorobanRpc.Server(rpcUrl);
+    this.server = new rpc.Server(rpcUrl);
     
     if (!process.env.SECRET_KEY) {
       throw new Error('SECRET_KEY environment variable is required');
@@ -39,10 +39,14 @@ class FundingBot {
       
       // Build transaction to call oracle lastprice
       const contract = new Contract(this.oracleContract);
-      const operation = contract.call(
-        'lastprice',
-        nativeToScVal({ Other: symbol }, { type: 'enum' })
-      );
+      
+      // Build Asset::Other(Symbol) argument
+      const assetArg = xdr.ScVal.scvVec([
+        xdr.ScVal.scvSymbol('Other'),
+        xdr.ScVal.scvSymbol(symbol.replace('USD', '')) // pass base, e.g., "XLM"
+      ]);
+
+      const operation = contract.call('lastprice', assetArg);
 
       const transaction = new TransactionBuilder(account, {
         fee: '100',
@@ -61,12 +65,21 @@ class FundingBot {
       }
 
       if (simResult.result?.retval) {
-        const result = scValToNative(simResult.result.retval);
-        if (result && typeof result === 'object' && 'price' in result && 'timestamp' in result) {
+        const result = scValToNative(simResult.result.retval) as any;
+        if (result && 'price' in result && 'timestamp' in result) {
+          // Fetch decimals once
+          const decOp = contract.call('decimals');
+          const decTx = new TransactionBuilder(account, { fee: '100', networkPassphrase: Networks.TESTNET })
+            .addOperation(decOp)
+            .setTimeout(30)
+            .build();
+          const decSim: any = await this.server.simulateTransaction(decTx);
+          const decimals = Number(scValToNative(decSim.result?.retval) ?? 14);
+          const divisor = 10n ** BigInt(decimals - 6);
           return {
-            price: BigInt(result.price),
+            price: BigInt(result.price) / divisor,
             timestamp: BigInt(result.timestamp)
-          };
+          } as OraclePriceData;
         }
       }
       
@@ -111,10 +124,10 @@ class FundingBot {
       
       // Submit transaction
       const submitResult = await this.server.sendTransaction(preparedTx);
-      console.log(`Funding update submitted for ${symbol}:`, submitResult.id);
+      console.log(`Funding update submitted for ${symbol}:`, submitResult.hash);
       
       // Wait for confirmation
-      const finalResult = await this.server.getTransaction(submitResult.id);
+      const finalResult = await this.server.getTransaction(submitResult.hash);
       
       return finalResult.status === 'SUCCESS';
     } catch (error) {
@@ -144,7 +157,7 @@ class FundingBot {
         }
 
         // Convert from 14 decimals to 6 decimals
-        const price6Decimals = priceData.price / 100_000_000n;
+        const price6Decimals = priceData.price; // already scaled
         
         console.log(`${symbol} oracle price: ${price6Decimals.toString()} (1e6)`);
         

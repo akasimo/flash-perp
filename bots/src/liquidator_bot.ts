@@ -1,5 +1,5 @@
-import { Keypair, Networks, Operation, TransactionBuilder, StrKey, xdr, scValToNative, nativeToScVal, Contract } from '@stellar/stellar-sdk';
-import { SorobanRpc } from '@stellar/stellar-sdk';
+import { Keypair, Networks, TransactionBuilder, xdr, scValToNative, nativeToScVal, Contract } from '@stellar/stellar-sdk';
+import { rpc } from '@stellar/stellar-sdk';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -19,7 +19,7 @@ interface EventData {
 }
 
 class LiquidatorBot {
-  private server: SorobanRpc.Server;
+  private server: rpc.Server;
   private keypair: Keypair;
   private perpContract: string;
   private oracleContract: string;
@@ -29,7 +29,7 @@ class LiquidatorBot {
 
   constructor() {
     const rpcUrl = process.env.RPC_URL || 'https://soroban-testnet.stellar.org';
-    this.server = new SorobanRpc.Server(rpcUrl);
+    this.server = new rpc.Server(rpcUrl);
     
     if (!process.env.LIQUIDATOR_SECRET_KEY) {
       throw new Error('LIQUIDATOR_SECRET_KEY environment variable is required');
@@ -159,10 +159,10 @@ class LiquidatorBot {
       preparedTx.sign(this.keypair);
       
       const submitResult = await this.server.sendTransaction(preparedTx);
-      console.log(`Liquidation submitted for ${trader}/${symbol}:`, submitResult.id);
+      console.log(`Liquidation submitted for ${trader}/${symbol}:`, submitResult.hash);
       
       // Wait for confirmation
-      const finalResult = await this.server.getTransaction(submitResult.id);
+      const finalResult = await this.server.getTransaction(submitResult.hash);
       
       return finalResult.status === 'SUCCESS';
     } catch (error) {
