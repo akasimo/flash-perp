@@ -285,7 +285,11 @@ impl FlashPerp {
             return Err(Error::SlippageExceeded);
         }
 
-        let notional = (size.abs() * mark_price) / DEC_P;
+        // Notional = |size| × price, guard against overflow
+        let notional = size.abs()
+            .checked_mul(mark_price)
+            .ok_or(Error::Overflow)? / DEC_P;
+
         let required_margin = (notional * IMR_BP) / 10_000;
 
         if margin < required_margin {
@@ -629,10 +633,11 @@ impl FlashPerp {
         let k = base_before.checked_mul(quote_before).ok_or(Error::Overflow)?;
 
         // Update reserves following constant-product invariant
-        reserve.base = base_before - size;
-        if reserve.base <= 0 {
+        let new_base = base_before.checked_sub(size).ok_or(Error::Overflow)?;
+        if new_base <= 0 {
             return Err(Error::InvalidAmount);
         }
+        reserve.base = new_base;
 
         reserve.quote = k / reserve.base;
 
@@ -846,5 +851,36 @@ mod test {
         let bad_limit = mark - 1; // for long position, too low
         let res = client.try_open_position(&trader, &symbol, &1_000_000, &200_000_000, &bad_limit);
         assert_eq!(res, Err(Ok(Error::SlippageExceeded)));
+    }
+
+    #[test]
+    fn test_overflow_guard() {
+        use core::i128::MAX as I128MAX;
+
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(FlashPerp, ());
+        let client = FlashPerpClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let trader = Address::generate(&env);
+        let symbol = symbol_short!("XLM");
+
+        let _ = client.initialize(&admin, &token);
+
+        // Deposit an enormous collateral so margin check is not the limiting factor
+        let _ = client.deposit_collateral(&trader, & (I128MAX / 2));
+
+        let mark = client.get_mark_price_view(&symbol);
+
+        let size = I128MAX / 2;
+        let margin = I128MAX / 2;
+
+        let res = client.try_open_position(&trader, &symbol, &size, &margin, &mark);
+
+        // Expect an overflow error (or similar upper-bound check)
+        assert_eq!(res, Err(Ok(Error::Overflow)));
     }
 }
