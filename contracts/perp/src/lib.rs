@@ -6,6 +6,9 @@ use soroban_sdk::{
 // Oracle integration
 const ORACLE_ID: &str = "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63";
 
+// Reflector oracle emits prices with 14 decimals. We scale these to 1e6 internally (14-6 = 8).
+const ORACLE_DIVISOR: i128 = 100_000_000; // 1e8
+
 // Constants
 const DEC_P: i128 = 1_000_000;                    // price 1e6
 const DEC_F: i128 = 1_000_000_000_000_000_000;    // funding 1e18
@@ -30,14 +33,8 @@ fn fetch_oracle_price(env: &Env, sym: Symbol) -> Result<i128, Error> {
     if env.ledger().timestamp() - pd.timestamp > 900 {
         return Err(Error::OracleStale);
     }
-    let dec: u32 = oracle.decimals();
-    if dec < 6 { return Err(Error::OracleUnavailable); }
-    let factor_pow = dec - 6;
-    let mut divisor: i128 = 1;
-    for _ in 0..factor_pow {
-        divisor *= 10;
-    }
-    Ok(pd.price / divisor) // scale to 1e6
+    // Reflector exposes prices with 14-dec precision. Convert to 1e6.
+    Ok(pd.price / ORACLE_DIVISOR)
 }
 
 fn default_skew_scale(sym: &Symbol) -> Result<i128, Error> {
@@ -71,6 +68,7 @@ pub enum Error {
     ZeroAmount = 13,
     SelfLiquidation = 14,
     SlippageExceeded = 15,
+    Overflow = 16,
 }
 
 #[contracttype]
@@ -145,7 +143,7 @@ pub struct FlashPerp;
 
 #[contractimpl]
 impl FlashPerp {
-    pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
+    pub fn initialize(env: Env, admin: Address, token_addr: Address) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
         }
@@ -153,9 +151,8 @@ impl FlashPerp {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Paused, &false);
 
-        // Collateral token address expected to be passed via admin argument for now
-        // (could be separate param; keeping signature stable for this patch)
-        env.storage().instance().set(&DataKey::CollateralToken, &admin); // TEMP: store admin as token for demo
+        // Store the actual collateral token contract address provided
+        env.storage().instance().set(&DataKey::CollateralToken, &token_addr);
 
         // Initialize reserves for supported symbols
         let symbols = vec![&env, symbol_short!("XLM"), symbol_short!("BTC"), symbol_short!("ETH")];
@@ -513,6 +510,19 @@ impl FlashPerp {
         Ok(())
     }
 
+    // ------------------------------------------------------------------
+    // Admin-only setter for collateral token after deployment (optional)
+    // ------------------------------------------------------------------
+    pub fn set_collateral_token(env: Env, admin: Address, token_addr: Address) -> Result<(), Error> {
+        admin.require_auth();
+        let stored_admin = Self::get_admin(&env)?;
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&DataKey::CollateralToken, &token_addr);
+        Ok(())
+    }
+
     // Internal helper functions
     fn get_admin(env: &Env) -> Result<Address, Error> {
         env.storage().instance()
@@ -598,8 +608,11 @@ impl FlashPerp {
         // Capture pre-trade reserves for fee calculation
         let base_before = reserve.base;
         let quote_before = reserve.quote;
-        let k = base_before * quote_before;
 
+        // Overflow-safe computation of constant product k
+        let k = base_before.checked_mul(quote_before).ok_or(Error::Overflow)?;
+
+        // Update reserves following constant-product invariant
         reserve.base = base_before - size;
         if reserve.base <= 0 {
             return Err(Error::InvalidAmount);
@@ -607,11 +620,13 @@ impl FlashPerp {
 
         reserve.quote = k / reserve.base;
 
-        // Fee is charged on the trade notional, NOT on entire pool.
-        let trade_notional = (size.abs() * quote_before) / base_before;
+        // Fee is charged on the absolute notional of the trade (Δquote)
+        let trade_notional = (reserve.quote - quote_before).abs();
         let fee = (trade_notional * FEE_BP) / 10_000;
+
+        // Pool retains the fee in quote asset
         reserve.quote += fee;
-        
+
         env.storage().persistent().set(&DataKey::Reserves(symbol.clone()), &reserve);
         env.storage().persistent().extend_ttl(&DataKey::Reserves(symbol.clone()), 10_000, 10_000);
         
@@ -732,11 +747,12 @@ mod test {
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        let result = client.initialize(&admin);
+        let token = Address::generate(&env);
+        let result = client.initialize(&admin, &token);
         assert_eq!(result, ());
 
         // Test double initialization
-        let result2 = client.try_initialize(&admin);
+        let result2 = client.try_initialize(&admin, &token);
         assert_eq!(result2, Err(Ok(Error::AlreadyInitialized)));
     }
 
@@ -749,9 +765,10 @@ mod test {
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
+        let token = Address::generate(&env);
         let trader = Address::generate(&env);
 
-        let _ = client.initialize(&admin);
+        let _ = client.initialize(&admin, &token);
 
         // Deposit
         let _ = client.deposit_collateral(&trader, &1_000_000_000);
@@ -771,10 +788,11 @@ mod test {
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
+        let token = Address::generate(&env);
         let trader = Address::generate(&env);
         let symbol = symbol_short!("XLM");
 
-        let _ = client.initialize(&admin);
+        let _ = client.initialize(&admin, &token);
         let _ = client.deposit_collateral(&trader, &10_000_000_000); // 10k USDC
 
         // Determine current mark price for slippage limit
