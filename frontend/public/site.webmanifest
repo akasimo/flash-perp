@@ -1,0 +1,21 @@
+{
+  "name": "FlashPerp",
+  "short_name": "FlashPerp",
+  "description": "Perpetual Trading on Stellar",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#0b0e11",
+  "background_color": "#0b0e11",
+  "display": "standalone",
+  "start_url": "/app"
+}

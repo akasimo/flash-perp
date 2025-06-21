@@ -88,7 +88,9 @@ export default function WalletButton({
         ) : state.isConnected ? (
           <div className="flex items-center space-x-2">
             <div className="w-2 h-2 bg-green-400 rounded-full" />
-            <span>{formatAddress(state.address!)}</span>
+            <span className="text-white font-mono text-xs truncate max-w-[100px]">
+              {formatAddress(state.address!)}
+            </span>
           </div>
         ) : (
           'Connect Wallet'

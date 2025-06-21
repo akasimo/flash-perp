@@ -52,9 +52,9 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         'active:bg-gray-800',
       ],
       outline: [
-        'bg-transparent border',
-        'hover:text-white',
-        'focus:ring-2',
+        'bg-transparent text-gray-300 border border-gray-600',
+        'hover:text-white hover:border-gray-500',
+        'focus:ring-gray-500',
         'active:opacity-80',
       ],
       ghost: [

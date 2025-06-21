@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { useWallet } from '@/lib/hooks/useWallet';
 import TopBar from '@/components/trading/TopBar';
 import MarketSelector from '@/components/trading/MarketSelector';
-import OrderBookPanel from '@/components/trading/OrderBookPanel';
+// import OrderBookPanel from '@/components/trading/OrderBookPanel'; // Removed for v1
 import ChartPanel from '@/components/trading/ChartPanel';
 import TradingPanel from '@/components/trading/TradingPanel';
 
@@ -61,20 +61,15 @@ export default function TradingApp() {
         </div>
       </div>
       
-      {/* Three-column trading layout */}
+      {/* Two-column trading layout (Chart expanded, no OrderBook) */}
       <div className="flex-1 grid grid-cols-12 overflow-hidden">
-        {/* Left column - Order book */}
-        <div className="col-span-3">
-          <OrderBookPanel />
-        </div>
-        
-        {/* Center column - Chart */}
-        <div className="col-span-6">
+        {/* Left column - Chart (expanded) */}
+        <div className="col-span-8 lg:col-span-9">
           <ChartPanel selectedMarket={selectedMarket} />
         </div>
         
         {/* Right column - Trading panel */}
-        <div className="col-span-3">
+        <div className="col-span-4 lg:col-span-3">
           <TradingPanel />
         </div>
       </div>

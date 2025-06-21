@@ -61,7 +61,7 @@ export default function TradingPanel() {
         </div>
 
         {/* Order type */}
-        <div className="flex bg-gray-900 rounded-lg p-1 mb-4">
+        <div className="flex bg-gray-900 rounded-lg p-1 mb-2">
           <button
             onClick={() => setOrderType('market')}
             className={`flex-1 py-2 px-3 text-xs font-medium rounded transition-colors ${
@@ -74,14 +74,21 @@ export default function TradingPanel() {
           </button>
           <button
             onClick={() => setOrderType('limit')}
-            className={`flex-1 py-2 px-3 text-xs font-medium rounded transition-colors ${
+            disabled
+            className={`flex-1 py-2 px-3 text-xs font-medium rounded transition-colors cursor-not-allowed ${
               orderType === 'limit'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-400 hover:text-white'
+                ? 'bg-gray-800 text-gray-500'
+                : 'text-gray-500'
             }`}
+            title="Limit orders coming in v2"
           >
             Limit
           </button>
+        </div>
+        
+        {/* Coming in v2 message */}
+        <div className="text-xs text-gray-500 italic mb-4 text-center">
+          Limit orders coming in v2
         </div>
 
         {/* Price input (only for limit orders) */}

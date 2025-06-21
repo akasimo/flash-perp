@@ -113,9 +113,11 @@ export default function MarketSelector({ selectedMarket, onMarketChange }: Marke
               filteredMarkets.map((market) => (
                 <Combobox.Option
                   key={market.symbol}
-                  className={({ active }) =>
+                  className={({ active, selected }) =>
                     `relative cursor-pointer select-none px-4 py-3 ${
-                      active ? 'bg-gray-800' : 'text-white'
+                      active ? 'bg-blue-600 text-white' : 
+                      selected ? 'bg-blue-700 text-white' : 
+                      'text-gray-200 hover:bg-gray-800'
                     }`
                   }
                   value={market.symbol}
