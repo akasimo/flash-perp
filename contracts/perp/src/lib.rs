@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, contracterror,
+    contract, contractimpl, contracttype, contracterror, contractclient,
     Env, Address, Symbol, symbol_short, vec,
 };
 
@@ -79,6 +79,23 @@ pub enum Asset {
 pub struct PriceData {
     pub price: i128,
     pub timestamp: u64,
+}
+
+// ---------- Oracle integration ----------
+
+#[contractclient(name = "Oracle")]
+trait OracleIfc {
+    fn lastprice(asset: Asset) -> Option<PriceData>;
+}
+
+fn fetch_oracle_price(env: &Env, sym: Symbol) -> Result<i128, Error> {
+    let oracle = Oracle::new(env, &Address::from_str(env, ORACLE_ID));
+    let pd = oracle.lastprice(&Asset::Other(sym))
+        .ok_or(Error::OracleUnavailable)?;
+    if env.ledger().timestamp() - pd.timestamp > 900 {
+        return Err(Error::OracleStale);
+    }
+    Ok(pd.price / 100_000_000) // 14-dec → 6-dec
 }
 
 #[contract]
@@ -399,7 +416,7 @@ impl FlashPerp {
     }
 
     pub fn get_oracle_price(env: Env, symbol: Symbol) -> Result<i128, Error> {
-        Self::fetch_oracle_price(&env, symbol)
+        fetch_oracle_price(&env, symbol)
     }
 
     // Admin functions
@@ -531,9 +548,8 @@ impl FlashPerp {
         (position.size * funding_diff) / DEC_F
     }
 
-    fn fetch_oracle_price(_env: &Env, symbol: Symbol) -> Result<i128, Error> {
-        // For now, return mock prices for testing
-        // In production, this would call the actual oracle contract
+    // Mock prices for testing - remove when using real oracle
+    fn _mock_oracle_price(symbol: Symbol) -> Result<i128, Error> {
         match symbol {
             s if s == symbol_short!("XLMUSD") => Ok(100_000), // $0.10
             s if s == symbol_short!("BTCUSD") => Ok(100_000_000_000), // $100,000
@@ -552,7 +568,7 @@ mod test {
     #[test]
     fn test_initialization() {
         let env = Env::default();
-        let contract_id = env.register(None, FlashPerp);
+        let contract_id = env.register(FlashPerp, ());
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -569,20 +585,20 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register(None, FlashPerp);
+        let contract_id = env.register(FlashPerp, ());
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
         let trader = Address::generate(&env);
 
-        client.initialize(&admin);
+        let _ = client.initialize(&admin);
 
         // Deposit
-        client.deposit_collateral(&trader, &1_000_000_000);
+        let _ = client.deposit_collateral(&trader, &1_000_000_000);
         assert_eq!(client.get_free_collateral(&trader), 1_000_000_000);
 
         // Withdraw
-        client.withdraw_collateral(&trader, &300_000_000);
+        let _ = client.withdraw_collateral(&trader, &300_000_000);
         assert_eq!(client.get_free_collateral(&trader), 700_000_000);
     }
 
@@ -591,25 +607,25 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register(None, FlashPerp);
+        let contract_id = env.register(FlashPerp, ());
         let client = FlashPerpClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
         let trader = Address::generate(&env);
         let symbol = symbol_short!("XLMUSD");
 
-        client.initialize(&admin);
-        client.deposit_collateral(&trader, &10_000_000_000); // 10k USDC
+        let _ = client.initialize(&admin);
+        let _ = client.deposit_collateral(&trader, &10_000_000_000); // 10k USDC
 
         // Open long position
-        client.open_position(&trader, &symbol, &10_000_000, &2_000_000_000); // 10 XLM, 2k USDC margin
+        let _ = client.open_position(&trader, &symbol, &10_000_000, &2_000_000_000); // 10 XLM, 2k USDC margin
 
         let position = client.get_position(&trader, &symbol).unwrap();
         assert_eq!(position.size, 10_000_000);
         assert_eq!(position.margin, 2_000_000_000);
 
         // Close half
-        client.close_position(&trader, &symbol, &5_000_000);
+        let _ = client.close_position(&trader, &symbol, &5_000_000);
 
         let position = client.get_position(&trader, &symbol).unwrap();
         assert_eq!(position.size, 5_000_000);
