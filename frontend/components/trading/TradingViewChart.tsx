@@ -84,18 +84,22 @@ function TradingViewChart({ symbol }: TradingViewChartProps) {
           save_image: false,
           hide_volume: false,
           overrides: {
-            'paneProperties.background': '#0b0e11',
-            'paneProperties.vertGridProperties.color': '#1e222d',
-            'paneProperties.horzGridProperties.color': '#1e222d',
+            'paneProperties.background': '#111418',
+            'paneProperties.vertGridProperties.color': '#2a2f3c',
+            'paneProperties.horzGridProperties.color': '#2a2f3c',
             'scalesProperties.textColor': '#d1d4dc',
-            'scalesProperties.backgroundColor': '#0b0e11',
+            'scalesProperties.backgroundColor': '#111418',
+            'mainSeriesProperties.candleStyle.upColor': '#26a69a',
+            'mainSeriesProperties.candleStyle.downColor': '#ef534f',
+            'mainSeriesProperties.candleStyle.wickUpColor': '#26a69a',
+            'mainSeriesProperties.candleStyle.wickDownColor': '#ef534f',
           },
           studies_overrides: {
             'volume.volume.color.0': '#ef534f',
             'volume.volume.color.1': '#26a69a',
           },
           loading_screen: {
-            backgroundColor: '#0b0e11',
+            backgroundColor: '#111418',
             foregroundColor: '#2563eb'
           }
         });

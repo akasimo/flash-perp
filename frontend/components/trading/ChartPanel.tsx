@@ -47,7 +47,7 @@ export default function ChartPanel({ selectedMarket }: ChartPanelProps) {
   const marketInfo = getMarketInfo(selectedMarket);
 
   return (
-    <div className="bg-gray-950 flex flex-col h-full">
+    <div className="bg-gray-950 flex flex-col h-full border-t border-gray-800">
       {/* Chart header */}
       <div className="border-b border-gray-800 px-4 py-2 flex-shrink-0">
         <div className="flex items-center justify-between">

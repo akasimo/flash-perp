@@ -75,10 +75,11 @@ export default function TradingPanel() {
           <button
             onClick={() => setOrderType('limit')}
             disabled
+            aria-disabled="true"
             className={`flex-1 py-2 px-3 text-xs font-medium rounded transition-colors cursor-not-allowed ${
               orderType === 'limit'
-                ? 'bg-gray-800 text-gray-500'
-                : 'text-gray-500'
+                ? 'bg-gray-800 text-gray-600'
+                : 'text-gray-600'
             }`}
             title="Limit orders coming in v2"
           >
@@ -110,8 +111,11 @@ export default function TradingPanel() {
           <label className="block text-gray-400 text-xs mb-2">Size</label>
           <input
             type="number"
+            min={0}
+            step={0.01}
             value={size}
             onChange={(e) => setSize(e.target.value)}
+            onWheel={(e) => (e.target as HTMLInputElement).blur()}
             placeholder="0.00"
             className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500"
           />
@@ -152,8 +156,8 @@ export default function TradingPanel() {
       </div>
 
       {/* Current position */}
-      <div className="p-4">
-        <h4 className="text-white font-semibold text-sm mb-3">Position</h4>
+      <div className="mt-auto border-t border-gray-800 pt-4 p-4">
+        <h4 className="text-white font-semibold text-sm mb-3">📍 Position</h4>
         
         {currentPosition ? (
           <div className="bg-gray-900 rounded-lg p-3">
