@@ -2,8 +2,7 @@
 
 'use client';
 
-import React, { useState, Fragment } from 'react';
-import { Combobox, Transition } from '@headlessui/react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDownIcon } from '@heroicons/react/20/solid';
 
 interface Market {
@@ -45,17 +44,23 @@ const MARKETS: Market[] = [
 ];
 
 export default function MarketSelector({ selectedMarket, onMarketChange }: MarketSelectorProps) {
-  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  // Get selected market data
   const selectedMarketData = MARKETS.find(m => m.symbol === selectedMarket) || MARKETS[0];
 
-  const filteredMarkets = query === ''
+  // Filter markets based on search
+  const filteredMarkets = searchQuery === ''
     ? MARKETS
     : MARKETS.filter((market) =>
-        market.symbol.toLowerCase().includes(query.toLowerCase()) ||
-        market.displayName.toLowerCase().includes(query.toLowerCase())
+        market.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        market.displayName.toLowerCase().includes(searchQuery.toLowerCase())
       );
 
+  // Format functions
   const formatPrice = (price: number, symbol: string) => {
     if (symbol === 'XLMUSD') {
       return `$${price.toFixed(4)}`;
@@ -73,58 +78,91 @@ export default function MarketSelector({ selectedMarket, onMarketChange }: Marke
     return `$${(volume / 1000).toFixed(0)}K`;
   };
 
-  return (
-    <Combobox value={selectedMarket} onChange={onMarketChange}>
-      <div className="relative">
-        <Combobox.Button className="w-full flex items-center justify-between px-3 py-2 text-left bg-gray-900 border border-gray-700 rounded hover:border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
-          <div className="flex items-center space-x-3">
-            <div>
-              <div className="text-white font-semibold text-sm">{selectedMarketData.symbol}</div>
-              <div className="text-gray-400 text-xs">{formatPrice(selectedMarketData.price, selectedMarketData.symbol)}</div>
-            </div>
-            <div className={`text-xs font-medium ${
-              selectedMarketData.change24h >= 0 ? 'text-green-400' : 'text-red-400'
-            }`}>
-              {selectedMarketData.change24h >= 0 ? '+' : ''}{selectedMarketData.change24h.toFixed(2)}%
-            </div>
-          </div>
-          <ChevronDownIcon className="h-4 w-4 text-gray-400" />
-        </Combobox.Button>
+  // Handle clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setSearchQuery('');
+      }
+    };
 
-        <Transition
-          as={Fragment}
-          leave="transition ease-in duration-100"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-        >
-          <Combobox.Options className="absolute z-50 mt-1 max-h-60 w-80 overflow-auto rounded bg-gray-900 border border-gray-700 shadow-lg">
-            <div className="p-2">
-              <Combobox.Input
-                className="w-full px-3 py-2 text-sm text-white bg-gray-800 border border-gray-600 rounded placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                placeholder="Search markets..."
-                displayValue={() => query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
-            
-            {filteredMarkets.length === 0 && query !== '' ? (
-              <div className="px-4 py-2 text-gray-400 text-sm">Nothing found.</div>
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Focus input when dropdown opens
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const handleMarketSelect = (symbol: string) => {
+    console.log('Market selected:', symbol);
+    onMarketChange(symbol);
+    setIsOpen(false);
+    setSearchQuery('');
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      {/* Dropdown button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-3 py-2 text-left bg-gray-900 border border-gray-700 rounded hover:border-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+      >
+        <div className="flex items-center space-x-3">
+          <div>
+            <div className="text-white font-semibold text-sm">{selectedMarketData.symbol}</div>
+            <div className="text-gray-400 text-xs">{formatPrice(selectedMarketData.price, selectedMarketData.symbol)}</div>
+          </div>
+          <div className={`text-xs font-medium ${
+            selectedMarketData.change24h >= 0 ? 'text-green-400' : 'text-red-400'
+          }`}>
+            {selectedMarketData.change24h >= 0 ? '+' : ''}{selectedMarketData.change24h.toFixed(2)}%
+          </div>
+        </div>
+        <ChevronDownIcon className="h-4 w-4 text-gray-400" />
+      </button>
+
+      {/* Dropdown menu */}
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-80 bg-gray-900 border border-gray-700 rounded shadow-lg">
+          {/* Search input */}
+          <div className="p-2">
+            <input
+              ref={inputRef}
+              type="text"
+              className="w-full px-3 py-2 text-sm text-white bg-gray-800 border border-gray-600 rounded placeholder-gray-400 focus:outline-none focus:border-blue-500"
+              placeholder="Search markets..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          {/* Markets list */}
+          <div className="max-h-60 overflow-y-auto">
+            {filteredMarkets.length === 0 ? (
+              <div className="px-4 py-2 text-gray-400 text-sm">No markets found.</div>
             ) : (
               filteredMarkets.map((market) => (
-                <Combobox.Option
+                <button
                   key={market.symbol}
-                  className={({ active, selected }) =>
-                    `relative cursor-pointer select-none px-4 py-3 ${
-                      active ? 'bg-blue-600 text-white' : 
-                      selected ? 'bg-blue-700 text-white' : 
-                      'text-gray-200 hover:bg-gray-800'
-                    }`
-                  }
-                  value={market.symbol}
+                  onClick={() => handleMarketSelect(market.symbol)}
+                  className={`w-full px-4 py-3 text-left hover:bg-gray-800 transition-colors ${
+                    market.symbol === selectedMarket ? 'bg-gray-800' : ''
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-semibold text-sm">{market.symbol}</div>
+                      <div className={`font-semibold text-sm ${
+                        market.symbol === selectedMarket ? 'text-blue-400' : 'text-white'
+                      }`}>
+                        {market.symbol}
+                      </div>
                       <div className="text-gray-400 text-xs">{market.displayName}</div>
                     </div>
                     <div className="text-right">
@@ -137,12 +175,12 @@ export default function MarketSelector({ selectedMarket, onMarketChange }: Marke
                       </div>
                     </div>
                   </div>
-                </Combobox.Option>
+                </button>
               ))
             )}
-          </Combobox.Options>
-        </Transition>
-      </div>
-    </Combobox>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
