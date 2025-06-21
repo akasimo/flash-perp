@@ -1,0 +1,19 @@
+{
+  "name": "flashperp-bots",
+  "version": "1.0.0",
+  "description": "Bots for FlashPerp - funding and liquidation",
+  "private": true,
+  "scripts": {
+    "funding": "tsx src/funding_bot.ts",
+    "liquidator": "tsx src/liquidator_bot.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.0.0",
+    "dotenv": "^16.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
