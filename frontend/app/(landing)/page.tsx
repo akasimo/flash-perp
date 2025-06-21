@@ -11,14 +11,14 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen">
       {/* Navigation */}
-      <nav className="absolute top-0 left-0 right-0 z-50">
+      <nav className="landing-nav fixed top-0 left-0 right-0 z-50">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-6">
+          <div className="flex items-center justify-between py-4">
             {/* Logo */}
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <h1 className="text-2xl font-bold text-white">
-                  Flash<span className="text-blue-400">Perp</span>
+                <h1 className="text-2xl font-bold" style={{ color: 'var(--landing-text-primary)' }}>
+                  Flash<span style={{ color: 'var(--blue-600)' }}>Perp</span>
                 </h1>
               </div>
             </div>
@@ -26,20 +26,21 @@ export default function LandingPage() {
             {/* Navigation links */}
             <div className="hidden md:block">
               <div className="ml-10 flex items-baseline space-x-8">
-                <a href="#features" className="text-blue-200 hover:text-white px-3 py-2 text-sm font-medium transition-colors">
+                <a href="#features" className="px-3 py-2 text-sm font-medium transition-colors hover:text-blue-700" style={{ color: 'var(--landing-text-secondary)' }}>
                   Features
                 </a>
-                <a href="#markets" className="text-blue-200 hover:text-white px-3 py-2 text-sm font-medium transition-colors">
+                <a href="#markets" className="px-3 py-2 text-sm font-medium transition-colors hover:text-blue-700" style={{ color: 'var(--landing-text-secondary)' }}>
                   Markets
                 </a>
-                <a href="#how-it-works" className="text-blue-200 hover:text-white px-3 py-2 text-sm font-medium transition-colors">
+                <a href="#how-it-works" className="px-3 py-2 text-sm font-medium transition-colors hover:text-blue-700" style={{ color: 'var(--landing-text-secondary)' }}>
                   How it Works
                 </a>
                 <a 
                   href="https://docs.stellar.org" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="text-blue-200 hover:text-white px-3 py-2 text-sm font-medium transition-colors"
+                  className="px-3 py-2 text-sm font-medium transition-colors hover:text-blue-700"
+                  style={{ color: 'var(--landing-text-secondary)' }}
                 >
                   Docs
                 </a>
@@ -49,7 +50,7 @@ export default function LandingPage() {
             {/* CTA button */}
             <div className="flex items-center space-x-4">
               <Link href="/app">
-                <Button variant="outline" className="border-blue-400 text-blue-400 hover:bg-blue-400 hover:text-white">
+                <Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white">
                   Launch App
                 </Button>
               </Link>

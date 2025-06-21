@@ -30,7 +30,7 @@ export default function LandingLayout({
 }) {
   return (
     <html lang="en" className="scroll-smooth">
-      <body className={`${inter.className} bg-gray-50 text-gray-900`}>
+      <body className={`${inter.className} landing-page`}>
         {children}
       </body>
     </html>

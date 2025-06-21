@@ -61,15 +61,15 @@ export default function Features() {
   ];
 
   return (
-    <section className="py-24 bg-white">
+    <section className="py-24" style={{ backgroundColor: 'var(--landing-bg-secondary)' }}>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center">
-          <h2 className="text-base font-semibold leading-7 text-blue-600">Features</h2>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+          <h2 className="text-base font-semibold leading-7" style={{ color: 'var(--blue-600)' }}>Features</h2>
+          <p className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl" style={{ color: 'var(--landing-text-primary)' }}>
             Everything you need for perpetual trading
           </p>
-          <p className="mt-6 text-lg leading-8 text-gray-600 max-w-2xl mx-auto">
+          <p className="mt-6 text-lg leading-8 max-w-2xl mx-auto" style={{ color: 'var(--landing-text-body)' }}>
             Built from the ground up for professional traders who demand speed, 
             security, and reliability in their derivatives trading.
           </p>
@@ -78,14 +78,14 @@ export default function Features() {
         {/* Features grid */}
         <div className="mt-20 grid grid-cols-1 gap-12 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature, index) => (
-            <div key={index} className="relative group">
-              <div className="flex items-center justify-center w-16 h-16 bg-blue-600 rounded-xl text-white mb-6 group-hover:bg-blue-700 transition-colors">
+            <div key={index} className="feature-card group">
+              <div className="flex items-center justify-center w-16 h-16 rounded-xl text-white mb-6 group-hover:bg-blue-700 transition-colors" style={{ backgroundColor: 'var(--blue-600)' }}>
                 {feature.icon}
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">
+              <h3 className="text-xl font-semibold mb-4" style={{ color: 'var(--landing-text-primary)' }}>
                 {feature.title}
               </h3>
-              <p className="text-gray-600 leading-7">
+              <p className="leading-7" style={{ color: 'var(--landing-text-body)' }}>
                 {feature.description}
               </p>
             </div>

@@ -20,7 +20,7 @@ export default function AppLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-gray-900 text-white overflow-hidden`}>
+      <body className={`${inter.className} trading-app overflow-hidden`}>
         <WalletProvider>
           <div className="h-screen flex flex-col">
             {children}
