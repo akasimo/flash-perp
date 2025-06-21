@@ -16,6 +16,27 @@ const BONUS_BP: i128 = 200;                       // 2% liquidation bonus
 const MAX_DRIFT_BP: i128 = 100;                 // ±1% max premium/discount
 const FEE_BP: i128 = 5;                         // 0.05% swap fee (placeholder)
 
+// Market-specific parameters --------------------------------------------------
+// IMPORTANT: Oracle assets are registered with their base symbol (e.g. "BTC", "XLM" …) in
+// the Reflector Oracle.  Our perp symbols append "USD" (e.g. BTCUSD) for display
+// purposes, so remember to strip the suffix when mapping to the oracle.
+
+// Skew scale represents the notional size (in base-asset units) that produces
+// a 1 bp change in premium/discount. Expressed in the same base‐units used for
+// position.size (6-dec fixed-point for XLM, micro-BTC = 1 e-6 BTC, micro-ETH etc.).
+
+fn default_skew_scale(sym: &Symbol) -> i128 {
+    if *sym == symbol_short!("XLMUSD") {
+        10_000_000_000      // 10 M XLM (size is 1e6 precision → 10 000 000 XLM)
+    } else if *sym == symbol_short!("BTCUSD") {
+        1_000_000           // 1 BTC expressed in micro-BTC (1e-6 BTC per unit)
+    } else if *sym == symbol_short!("ETHUSD") {
+        100_000_000         // 100 ETH expressed in micro-ETH (1e-6 ETH per unit)
+    } else {
+        panic!("Unsupported symbol for skew scale");
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[contracterror]
 #[repr(u32)]
@@ -135,15 +156,7 @@ impl FlashPerp {
 
             // --- Parcl-style additions ---
             // Set skew scale (can be tweaked later via admin fn)
-            let skew_scale: i128 = if sym.clone() == symbol_short!("XLMUSD") {
-                10_000_000_000
-            } else if sym.clone() == symbol_short!("BTCUSD") {
-                1_000_000
-            } else if sym.clone() == symbol_short!("ETHUSD") {
-                100_000_000
-            } else {
-                1
-            };
+            let skew_scale = default_skew_scale(&sym);
             env.storage().persistent().set(&DataKey::SkewScale(sym.clone()), &skew_scale);
             env.storage().persistent().extend_ttl(&DataKey::SkewScale(sym.clone()), 10_000, 10_000);
 
