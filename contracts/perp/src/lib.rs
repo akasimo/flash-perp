@@ -134,8 +134,10 @@ trait OracleIfc {
 #[contractclient(name = "Token")]
 #[allow(dead_code)]
 trait TokenIfc {
-    fn transfer_from(from: &Address, to: &Address, amount: &i128);
-    fn transfer(to: &Address, amount: &i128);
+    // Matches Soroban token interface: `transfer_from(spender, from, to, amount)` and
+    // `transfer(from, to, amount)`.
+    fn transfer_from(spender: &Address, from: &Address, to: &Address, amount: &i128);
+    fn transfer(from: &Address, to: &Address, amount: &i128);
 }
 
 #[contract]
@@ -215,7 +217,7 @@ impl FlashPerp {
         {
             let token_addr: Address = env.storage().instance().get(&DataKey::CollateralToken).unwrap();
             let token = Token::new(&env, &token_addr);
-            token.transfer_from(&trader, &env.current_contract_address(), &amount);
+            token.transfer(&trader, &env.current_contract_address(), &amount);
         }
 
         let current_collateral = Self::get_collateral(&env, &trader);
@@ -253,7 +255,7 @@ impl FlashPerp {
         {
             let token_addr: Address = env.storage().instance().get(&DataKey::CollateralToken).unwrap();
             let token = Token::new(&env, &token_addr);
-            token.transfer(&trader, &amount);
+            token.transfer(&env.current_contract_address(), &trader, &amount);
         }
 
         env.events().publish((symbol_short!("WITHDRAW"), trader), amount);
