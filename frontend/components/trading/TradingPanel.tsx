@@ -4,19 +4,93 @@
 
 import React, { useState } from 'react';
 import Card from '@/components/ui/Card';
+import { useWallet } from '@/lib/hooks/useWallet';
+import { useCollateral } from '@/lib/hooks/useCollateral';
+import { useMarkPrice } from '@/lib/hooks/useMarketData';
+import { createOpenPositionTransaction, validateTradeParams, calculateRequiredMargin } from '@/lib/stellar/trading-operations';
+import Button from '@/components/ui/Button';
 
 type OrderSide = 'buy' | 'sell';
 type OrderType = 'market' | 'limit';
 
-export default function TradingPanel() {
+interface TradingPanelProps {
+  selectedMarket: string;
+}
+
+export default function TradingPanel({ selectedMarket }: TradingPanelProps) {
+  const { state, signTransaction } = useWallet();
   const [orderSide, setOrderSide] = useState<OrderSide>('buy');
   const [orderType, setOrderType] = useState<OrderType>('market');
   const [size, setSize] = useState('');
   const [price, setPrice] = useState('');
   const [leverage, setLeverage] = useState(10);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Get real data
+  const { exchangeBalance } = useCollateral(state.isConnected ? state.address : null);
+  const markPrice = useMarkPrice(selectedMarket);
+  
+  // Calculate required margin
+  const sizeNum = parseFloat(size) || 0;
+  const requiredMargin = sizeNum > 0 ? calculateRequiredMargin(sizeNum, markPrice, leverage) : 0;
+  const canAfford = requiredMargin <= exchangeBalance;
 
-  const handleSubmitOrder = () => {
-    console.log('Submitting order:', { orderSide, orderType, size, price, leverage });
+  const handleSubmitOrder = async () => {
+    if (!state.isConnected || !state.address || isLoading) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const sizeNum = parseFloat(size);
+      if (!sizeNum || sizeNum <= 0) {
+        throw new Error('Size must be greater than 0');
+      }
+      
+      // Convert side to signed size
+      const signedSize = orderSide === 'buy' ? sizeNum : -sizeNum;
+      
+      // Validate trade parameters
+      const validation = validateTradeParams({
+        trader: state.address,
+        symbol: selectedMarket,
+        size: signedSize,
+        margin: requiredMargin,
+      });
+      
+      if (validation) {
+        throw new Error(validation);
+      }
+      
+      // Check if user has enough collateral
+      if (!canAfford) {
+        throw new Error(`Insufficient collateral. Required: $${requiredMargin.toFixed(2)}, Available: $${exchangeBalance.toFixed(2)}`);
+      }
+      
+      // Create transaction
+      const txXdr = await createOpenPositionTransaction({
+        trader: state.address,
+        symbol: selectedMarket,
+        size: signedSize,
+        margin: requiredMargin,
+      });
+      
+      // Sign and submit transaction
+      const signedTx = await signTransaction(txXdr);
+      
+      console.log('Order submitted:', signedTx);
+      
+      // Reset form on success
+      setSize('');
+      setPrice('');
+      
+    } catch (error: any) {
+      console.error('Order submission failed:', error);
+      setError(error.message || 'Failed to submit order');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -107,7 +181,9 @@ export default function TradingPanel() {
               placeholder="0.00"
               className="w-full px-4 py-3 bg-gray-950 border border-gray-800 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:bg-gray-900 transition-all duration-200 hover:border-gray-700"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">BTC</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">
+              {selectedMarket.replace('USD', '')}
+            </span>
           </div>
         </div>
 
@@ -135,17 +211,58 @@ export default function TradingPanel() {
           </div>
         </div>
 
+        {/* Order summary */}
+        {sizeNum > 0 && (
+          <div className="mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-gray-400">Required Margin</span>
+              <span className="text-white">${requiredMargin.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-gray-400">Available Balance</span>
+              <span className={canAfford ? 'text-green-400' : 'text-red-400'}>
+                ${exchangeBalance.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-400">Position Value</span>
+              <span className="text-white">${(sizeNum * markPrice).toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Error message */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-900/20 border border-red-600/30 rounded-lg">
+            <p className="text-xs text-red-400">{error}</p>
+          </div>
+        )}
+        
+        {/* Wallet connection prompt */}
+        {!state.isConnected && (
+          <div className="mb-4 p-3 bg-blue-900/20 border border-blue-600/30 rounded-lg">
+            <p className="text-xs text-blue-400">Connect your wallet to place orders</p>
+          </div>
+        )}
+        
         {/* Submit button */}
-        <button
+        <Button
           onClick={handleSubmitOrder}
-          className={`w-full py-4 rounded-lg font-semibold text-base transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] ${
-            orderSide === 'buy'
-              ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg shadow-green-500/25'
-              : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white shadow-lg shadow-red-500/25'
-          }`}
+          disabled={!state.isConnected || !sizeNum || !canAfford || isLoading}
+          loading={isLoading}
+          variant={orderSide === 'buy' ? 'success' : 'danger'}
+          fullWidth
+          className="py-4 text-base font-semibold"
         >
-          {orderSide === 'buy' ? 'Buy' : 'Sell'} {orderType === 'market' ? 'Market' : 'Limit'}
-        </button>
+          {!state.isConnected 
+            ? 'Connect Wallet'
+            : !sizeNum 
+              ? 'Enter Size'
+              : !canAfford
+                ? 'Insufficient Balance'
+                : `${orderSide === 'buy' ? 'Buy' : 'Sell'} ${orderType === 'market' ? 'Market' : 'Limit'}`
+          }
+        </Button>
       </Card>
     </div>
   );

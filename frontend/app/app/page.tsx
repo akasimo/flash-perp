@@ -9,8 +9,17 @@ import TopBar from '@/components/trading/TopBar';
 import ChartPanel from '@/components/trading/ChartPanel';
 import TradingPanel from '@/components/trading/TradingPanel';
 import BottomPanel from '@/components/trading/BottomPanel';
+import ConfigurationCheck from '@/components/ConfigurationCheck';
 
 export default function TradingApp() {
+  return (
+    <ConfigurationCheck>
+      <TradingAppContent />
+    </ConfigurationCheck>
+  );
+}
+
+function TradingAppContent() {
   const { state, connect } = useWallet();
   const [selectedMarket, setSelectedMarket] = useState('BTCUSD');
 
@@ -61,7 +70,7 @@ export default function TradingApp() {
           
           {/* Right column - Trading panel */}
           <div className="col-span-4 lg:col-span-3">
-            <TradingPanel />
+            <TradingPanel selectedMarket={selectedMarket} />
           </div>
         </div>
         

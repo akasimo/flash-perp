@@ -1,97 +1,164 @@
-// Market data hooks for real-time price and funding updates
+// Market data hooks for real-time price and funding updates from Stellar testnet
 
-import { useState, useEffect } from 'react';
-import { FlashPerpClient } from '@/lib/stellar/client';
+import { useState, useEffect, useCallback } from 'react';
+import { callView, formatTokenAmount, scalePrice } from '@/lib/stellar/soroban-client';
+import { CONTRACTS, POLLING_INTERVALS, DECIMALS, SCALING_FACTORS } from '@/lib/constants/contracts';
+import { handleContractError } from '@/lib/stellar/error-handler';
+import { FundingData } from '@/lib/stellar/types';
 
-const POLLING_INTERVALS = {
-  PRICES: 2000,    // 2 seconds
-  FUNDING: 30000,  // 30 seconds
-};
-
-export interface FundingData {
-  rate: number;          // 0.0001 → 0.01%
-  nextEpochTs?: number;  // optional
-}
-
+/**
+ * Hook to get mark price from FlashPerp contract
+ */
 export function useMarkPrice(symbol: string): number {
   const [price, setPrice] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  
+  const fetchMarkPrice = useCallback(async () => {
+    if (!symbol || CONTRACTS.PERP.includes('PLACEHOLDER')) {
+      return;
+    }
+    
+    try {
+      // Call flashperp.get_mark_price_view(symbol)
+      const rawPrice = await callView<bigint>(
+        CONTRACTS.PERP,
+        'get_mark_price_view',
+        symbol.replace('USD', '')
+      );
+      
+      // Convert from DEC6 to display number
+      const displayPrice = formatTokenAmount(rawPrice, DECIMALS.PRICE_DISPLAY);
+      setPrice(displayPrice);
+      setError(null);
+    } catch (err) {
+      console.error(`Error fetching mark price for ${symbol}:`, err);
+      setError(handleContractError(err));
+    }
+  }, [symbol]);
   
   useEffect(() => {
-    // Mock data for now - replace with real contract calls
-    const mockPrices: Record<string, number> = {
-      'BTCUSD': 65432.10,
-      'ETHUSD': 3456.78,
-      'XLMUSD': 0.1234,
-    };
+    fetchMarkPrice();
     
-    setPrice(mockPrices[symbol] || 0);
-    
-    const interval = setInterval(() => {
-      // Add small random variation to simulate live data
-      const basePrice = mockPrices[symbol] || 0;
-      const variation = (Math.random() - 0.5) * basePrice * 0.0002; // 0.02% variation
-      setPrice(basePrice + variation);
-    }, POLLING_INTERVALS.PRICES);
-    
+    const interval = setInterval(fetchMarkPrice, POLLING_INTERVALS.PRICES);
     return () => clearInterval(interval);
-  }, [symbol]);
+  }, [fetchMarkPrice]);
   
   return price;
 }
 
+/**
+ * Hook to get index price from Oracle contract
+ */
 export function useIndexPrice(symbol: string): number {
   const [price, setPrice] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  
+  const fetchIndexPrice = useCallback(async () => {
+    if (!symbol || CONTRACTS.ORACLE.includes('PLACEHOLDER')) {
+      return;
+    }
+    
+    try {
+      // Build Asset::Other(Symbol) enum as Vec<ScVal>
+      const { xdr } = await import('@stellar/stellar-sdk');
+      const assetParam = xdr.ScVal.scvVec([
+        xdr.ScVal.scvSymbol('Other'),
+        xdr.ScVal.scvSymbol(symbol.replace('USD', '')),
+      ]);
+
+      const rawPrice = await callView<bigint>(
+        CONTRACTS.ORACLE,
+        'lastprice',
+        assetParam,
+      );
+      
+      // Scale from 14 decimals to 6 decimals
+      const scaledPrice = scalePrice(rawPrice, DECIMALS.ORACLE, DECIMALS.PRICE_DISPLAY);
+      const displayPrice = formatTokenAmount(scaledPrice, DECIMALS.PRICE_DISPLAY);
+      
+      setPrice(displayPrice);
+      setError(null);
+    } catch (err) {
+      console.error(`Error fetching index price for ${symbol}:`, err);
+      setError(handleContractError(err));
+    }
+  }, [symbol]);
   
   useEffect(() => {
-    // Mock data - should be slightly different from mark price
-    const mockPrices: Record<string, number> = {
-      'BTCUSD': 65420.00,
-      'ETHUSD': 3455.00,
-      'XLMUSD': 0.1235,
-    };
+    fetchIndexPrice();
     
-    setPrice(mockPrices[symbol] || 0);
-    
-    const interval = setInterval(() => {
-      const basePrice = mockPrices[symbol] || 0;
-      const variation = (Math.random() - 0.5) * basePrice * 0.0001;
-      setPrice(basePrice + variation);
-    }, POLLING_INTERVALS.PRICES);
-    
+    const interval = setInterval(fetchIndexPrice, POLLING_INTERVALS.PRICES);
     return () => clearInterval(interval);
-  }, [symbol]);
+  }, [fetchIndexPrice]);
   
   return price;
 }
 
+/**
+ * Hook to get funding rate from FlashPerp contract
+ */
 export function useFundingRate(symbol: string): FundingData {
   const [funding, setFunding] = useState<FundingData>({ rate: 0 });
+  const [error, setError] = useState<string | null>(null);
   
-  useEffect(() => {
-    // Mock funding rates
-    const mockRates: Record<string, number> = {
-      'BTCUSD': 0.0001,   // 0.01%
-      'ETHUSD': -0.0002,  // -0.02%
-      'XLMUSD': 0.0003,   // 0.03%
-    };
+  const fetchFundingRate = useCallback(async () => {
+    if (!symbol || CONTRACTS.PERP.includes('PLACEHOLDER')) {
+      return;
+    }
     
-    setFunding({ 
-      rate: mockRates[symbol] || 0,
-      nextEpochTs: Date.now() + 8 * 60 * 60 * 1000 // 8 hours from now
-    });
-    
-    const interval = setInterval(() => {
-      // Funding rate changes less frequently
-      const baseRate = mockRates[symbol] || 0;
-      const variation = (Math.random() - 0.5) * 0.00001;
-      setFunding(prev => ({ 
-        ...prev, 
-        rate: baseRate + variation 
-      }));
-    }, POLLING_INTERVALS.FUNDING);
-    
-    return () => clearInterval(interval);
+    try {
+      // First poke funding to update it
+      const baseSym = symbol.replace('USD', '');
+      await callView(
+        CONTRACTS.PERP,
+        'poke_funding',
+        baseSym
+      );
+      
+      // Then get the funding data - this might be part of mark price view
+      // or a separate method depending on contract implementation
+      const fundingData = await callView<any>(
+        CONTRACTS.PERP,
+        'get_funding_info', // Assuming this method exists
+        baseSym
+      );
+      
+      // Convert funding rate from contract format to percentage
+      const rate = Number(fundingData.rate) / 1000000; // Assuming rate is in DEC6
+      
+      setFunding({
+        rate,
+        nextEpochTs: fundingData.next_funding_time || Date.now() + 8 * 60 * 60 * 1000
+      });
+      setError(null);
+    } catch (err) {
+      console.error(`Error fetching funding rate for ${symbol}:`, err);
+      setError(handleContractError(err));
+    }
   }, [symbol]);
   
+  useEffect(() => {
+    fetchFundingRate();
+    
+    const interval = setInterval(fetchFundingRate, POLLING_INTERVALS.FUNDING);
+    return () => clearInterval(interval);
+  }, [fetchFundingRate]);
+  
   return funding;
+}
+
+/**
+ * Combined hook for all market data
+ */
+export function useMarketData(symbol: string) {
+  const markPrice = useMarkPrice(symbol);
+  const indexPrice = useIndexPrice(symbol);
+  const funding = useFundingRate(symbol);
+  
+  return {
+    markPrice,
+    indexPrice,
+    funding,
+    isLoading: markPrice === 0 && indexPrice === 0,
+  };
 }

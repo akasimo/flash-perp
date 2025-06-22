@@ -4,36 +4,48 @@
 
 import React, { useState } from 'react';
 import Card from '@/components/ui/Card';
+import { usePositions } from '@/lib/hooks/usePositions';
+import { useWallet } from '@/lib/hooks/useWallet';
+import { formatPrice } from '@/lib/stellar/soroban-client';
+import { createClosePositionTransaction } from '@/lib/stellar/trading-operations';
 
 type TabType = 'positions' | 'orders' | 'history';
 
-interface Position {
-  symbol: string;
-  side: 'long' | 'short';
-  size: number;
-  entryPrice: number;
-  markPrice: number;
-  pnl: number;
-  pnlPercent: number;
-  margin: number;
-}
-
 export default function BottomPanel() {
   const [activeTab, setActiveTab] = useState<TabType>('positions');
-
-  // Mock position data
-  const positions: Position[] = [
-    {
-      symbol: 'BTCUSD',
-      side: 'long',
-      size: 0.5,
-      entryPrice: 65200.00,
-      markPrice: 65432.10,
-      pnl: 116.05,
-      pnlPercent: 2.31,
-      margin: 3260.00,
-    },
-  ];
+  const [closingPosition, setClosingPosition] = useState<string | null>(null);
+  const { state, signTransaction } = useWallet();
+  
+  // Get real positions from contracts
+  const positions = usePositions(state.isConnected ? state.address : null);
+  
+  const handleClosePosition = async (symbol: string) => {
+    if (!state.isConnected || !state.address || closingPosition) {
+      return;
+    }
+    
+    setClosingPosition(symbol);
+    
+    try {
+      // Create close position transaction
+      const txXdr = await createClosePositionTransaction(
+        state.address,
+        symbol
+        // size parameter omitted to close entire position
+      );
+      
+      // Sign and submit transaction
+      const signedTx = await signTransaction(txXdr);
+      
+      console.log('Position closed successfully:', signedTx);
+      
+    } catch (error: any) {
+      console.error('Error closing position:', error);
+      alert(`Failed to close position: ${error.message || 'Unknown error'}`);
+    } finally {
+      setClosingPosition(null);
+    }
+  };
 
   return (
     <Card className="h-full flex flex-col" noPadding>
@@ -99,12 +111,12 @@ export default function BottomPanel() {
                         {position.side.toUpperCase()}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-white">{position.size}</td>
+                    <td className="px-4 py-3 text-right text-white">{position.size.toFixed(4)}</td>
                     <td className="px-4 py-3 text-right text-gray-300">
-                      ${position.entryPrice.toLocaleString()}
+                      ${formatPrice(position.entryPrice, position.symbol)}
                     </td>
                     <td className="px-4 py-3 text-right text-white">
-                      ${position.markPrice.toLocaleString()}
+                      ${formatPrice(position.markPrice, position.symbol)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className={position.pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
@@ -117,11 +129,15 @@ export default function BottomPanel() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right text-gray-300">
-                      ${position.margin.toLocaleString()}
+                      ${position.margin.toFixed(2)}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded transition-colors">
-                        Close
+                      <button 
+                        className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-red-600/50 text-white text-xs font-medium rounded transition-colors disabled:cursor-not-allowed"
+                        onClick={() => handleClosePosition(position.symbol)}
+                        disabled={closingPosition === position.symbol}
+                      >
+                        {closingPosition === position.symbol ? 'Closing...' : 'Close'}
                       </button>
                     </td>
                   </tr>
@@ -129,7 +145,7 @@ export default function BottomPanel() {
               ) : (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                    No open positions
+                    {state.isConnected ? 'No open positions' : 'Connect wallet to view positions'}
                   </td>
                 </tr>
               )}
@@ -139,13 +155,13 @@ export default function BottomPanel() {
 
         {activeTab === 'orders' && (
           <div className="flex items-center justify-center h-full text-gray-500">
-            No open orders
+            {state.isConnected ? 'No open orders' : 'Connect wallet to view orders'}
           </div>
         )}
 
         {activeTab === 'history' && (
           <div className="flex items-center justify-center h-full text-gray-500">
-            No trade history
+            {state.isConnected ? 'No trade history' : 'Connect wallet to view history'}
           </div>
         )}
       </div>

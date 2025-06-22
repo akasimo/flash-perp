@@ -6,7 +6,8 @@ import React, { Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import Card from '@/components/ui/Card';
 import SymbolDropdown from '@/components/trading/SymbolDropdown';
-import { useMarkPrice, useIndexPrice, useFundingRate } from '@/lib/hooks/useMarketData';
+import { useMarketData } from '@/lib/hooks/useMarketData';
+import { formatPrice } from '@/lib/stellar/soroban-client';
 
 // Dynamically import TradingView chart to avoid SSR issues
 const TradingViewChart = dynamic(
@@ -39,17 +40,7 @@ function ChartSkeleton() {
 
 export default function ChartPanel({ selectedMarket, onMarketChange }: ChartPanelProps) {
   // Get live market data
-  const markPrice = useMarkPrice(selectedMarket);
-  const indexPrice = useIndexPrice(selectedMarket);
-  const funding = useFundingRate(selectedMarket);
-  
-  // Format prices based on symbol
-  const formatPrice = (price: number) => {
-    if (selectedMarket === 'XLMUSD') {
-      return `$${price.toFixed(4)}`;
-    }
-    return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
+  const { markPrice, indexPrice, funding, isLoading } = useMarketData(selectedMarket);
 
   return (
     <Card className="flex flex-col h-full" noPadding>
@@ -62,20 +53,26 @@ export default function ChartPanel({ selectedMarket, onMarketChange }: ChartPane
               {/* Mark Price */}
               <div className="flex items-center space-x-2">
                 <span className="text-xs text-gray-500">Mark</span>
-                <span className="text-white font-medium">{formatPrice(markPrice)}</span>
+                <span className="text-white font-medium">
+                  {isLoading ? '-.--' : `$${formatPrice(markPrice, selectedMarket)}`}
+                </span>
               </div>
               
               {/* Index Price */}
               <div className="flex items-center space-x-2">
                 <span className="text-xs text-gray-500">Index</span>
-                <span className="text-white">{formatPrice(indexPrice)}</span>
+                <span className="text-white">
+                  {isLoading ? '-.--' : `$${formatPrice(indexPrice, selectedMarket)}`}
+                </span>
               </div>
               
               {/* Funding Rate */}
               <div className="flex items-center space-x-2">
                 <span className="text-xs text-gray-500">Funding</span>
                 <span className={`text-sm font-medium ${funding.rate >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {funding.rate >= 0 ? '+' : ''}{(funding.rate * 100).toFixed(3)}%
+                  {isLoading ? '-.--' : (
+                    `${funding.rate >= 0 ? '+' : ''}${(funding.rate * 100).toFixed(3)}%`
+                  )}
                 </span>
               </div>
             </div>
