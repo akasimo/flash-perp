@@ -23,7 +23,7 @@ class LiquidatorBot {
   private keypair: Keypair;
   private perpContract: string;
   private oracleContract: string;
-  private symbols: string[] = ['XLMUSD', 'BTCUSD', 'ETHUSD'];
+  private symbols: string[] = ['XLM', 'BTC', 'ETH'];
   private lastCheckedLedger: number = 0;
   private MMR_BP = 1000n; // 10% maintenance margin
 

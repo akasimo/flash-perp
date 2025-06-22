@@ -45,10 +45,33 @@ async function fetchOraclePrice(assetSym: string) {
   }
 
   const scval = sim.result?.retval;
-  if (!scval) throw new Error("No retval from simulation");
+  if (!scval) throw new Error("Simulation returned no 'retval'");
 
-  const native = scValToNative(scval);
-  if (!native) throw new Error("None returned for price");
+  const decoded = scValToNative(scval);
+
+  // The oracle adheres to SEP-40 and wraps Price in an Option<Price>.
+  // scValToNative returns either `null` (None), a Price object, or
+  // for older sdk versions, an array like ['some', Price].  Handle
+  // all three cases so the script keeps working across sdk upgrades.
+  let priceObj: any | null = null;
+  if (decoded === null || decoded === undefined) {
+    // None
+    throw new Error(`Oracle returned None for ${assetSym}`);
+  } else if (Array.isArray(decoded)) {
+    // ['none'] | ['some', value]
+    const [tag, val] = decoded;
+    if (tag.toLowerCase() === "some") {
+      priceObj = val;
+    } else {
+      throw new Error(`Oracle returned None for ${assetSym}`);
+    }
+  } else {
+    priceObj = decoded;
+  }
+
+  if (priceObj?.price === undefined) {
+    throw new Error(`Unexpected oracle response shape: ${JSON.stringify(priceObj)}`);
+  }
 
   // Fetch decimals once
   if (ORACLE_DECIMALS === undefined) {
@@ -60,7 +83,7 @@ async function fetchOraclePrice(assetSym: string) {
     ORACLE_DECIMALS = Number(scValToNative(decSim.result?.retval));
   }
 
-  const priceFull = BigInt(native.price);
+  const priceFull = BigInt(priceObj.price);
   const divisor = 10n ** BigInt((ORACLE_DECIMALS ?? 14) - 6);
   return priceFull / divisor; // returns 1e6 scaled price
 }

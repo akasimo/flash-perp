@@ -14,7 +14,7 @@ class FundingBot {
   private keypair: Keypair;
   private perpContract: string;
   private oracleContract: string;
-  private symbols: string[] = ['XLMUSD', 'BTCUSD', 'ETHUSD'];
+  private symbols: string[] = ['XLM', 'BTC', 'ETH'];
 
   constructor() {
     const rpcUrl = process.env.RPC_URL || 'https://soroban-testnet.stellar.org';
@@ -43,7 +43,7 @@ class FundingBot {
       // Build Asset::Other(Symbol) argument
       const assetArg = xdr.ScVal.scvVec([
         xdr.ScVal.scvSymbol('Other'),
-        xdr.ScVal.scvSymbol(symbol.replace('USD', '')) // pass base, e.g., "XLM"
+        xdr.ScVal.scvSymbol(symbol) // base symbol, e.g., "XLM"
       ]);
 
       const operation = contract.call('lastprice', assetArg);
@@ -97,9 +97,8 @@ class FundingBot {
       // Build transaction to update funding
       const contract = new Contract(this.perpContract);
       const operation = contract.call(
-        'update_funding',
-        nativeToScVal(symbol, { type: 'symbol' }),
-        nativeToScVal(oraclePrice, { type: 'i128' })
+        'poke_funding',
+        nativeToScVal(symbol, { type: 'symbol' })
       );
 
       let transaction = new TransactionBuilder(account, {
@@ -124,7 +123,7 @@ class FundingBot {
       
       // Submit transaction
       const submitResult = await this.server.sendTransaction(preparedTx);
-      console.log(`Funding update submitted for ${symbol}:`, submitResult.hash);
+      console.log(`Funding poke submitted for ${symbol}:`, submitResult.hash);
       
       // Wait for confirmation
       const finalResult = await this.server.getTransaction(submitResult.hash);
@@ -165,7 +164,7 @@ class FundingBot {
         const success = await this.updateFunding(symbol, price6Decimals);
         
         if (success) {
-          console.log(`✓ Funding updated for ${symbol}`);
+          console.log(`✓ Funding poked for ${symbol}`);
         } else {
           console.error(`✗ Failed to update funding for ${symbol}`);
         }
