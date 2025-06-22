@@ -134,10 +134,11 @@ trait OracleIfc {
 #[contractclient(name = "Token")]
 #[allow(dead_code)]
 trait TokenIfc {
-    // Matches Soroban token interface: `transfer_from(spender, from, to, amount)` and
-    // `transfer(from, to, amount)`.
-    fn transfer_from(spender: &Address, from: &Address, to: &Address, amount: &i128);
+    // Matches Soroban SAC interface:
+    // transfer(spenderSignedFrom, to, amount)
     fn transfer(from: &Address, to: &Address, amount: &i128);
+    // transfer_from(spender, from, to, amount)
+    fn transfer_from(spender: &Address, from: &Address, to: &Address, amount: &i128);
 }
 
 #[contract]
@@ -640,7 +641,7 @@ impl FlashPerp {
             return Err(Error::InvalidAmount);
         }
         reserve.base = new_base;
-
+        
         reserve.quote = k / reserve.base;
 
         // Calculate absolute change in quote ( |Δquote| ) without risking under-/overflow
@@ -657,7 +658,7 @@ impl FlashPerp {
 
         // Pool retains the fee in quote asset – check for overflow
         reserve.quote = reserve.quote.checked_add(fee).ok_or(Error::Overflow)?;
-
+        
         env.storage().persistent().set(&DataKey::Reserves(symbol.clone()), &reserve);
         env.storage().persistent().extend_ttl(&DataKey::Reserves(symbol.clone()), 10_000, 10_000);
         
