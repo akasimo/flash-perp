@@ -5,6 +5,8 @@
 import React, { Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import Card from '@/components/ui/Card';
+import SymbolDropdown from '@/components/trading/SymbolDropdown';
+import { useMarkPrice, useIndexPrice, useFundingRate } from '@/lib/hooks/useMarketData';
 
 // Dynamically import TradingView chart to avoid SSR issues
 const TradingViewChart = dynamic(
@@ -17,6 +19,7 @@ const TradingViewChart = dynamic(
 
 interface ChartPanelProps {
   selectedMarket: string;
+  onMarketChange: (symbol: string) => void;
 }
 
 function ChartSkeleton() {
@@ -34,45 +37,52 @@ function ChartSkeleton() {
   );
 }
 
-export default function ChartPanel({ selectedMarket }: ChartPanelProps) {
-  // Get market display information
-  const getMarketInfo = (market: string) => {
-    const marketData: Record<string, { price: string; change: string; changeColor: string }> = {
-      'BTCUSD': { price: '$65,432.10', change: '+2.45%', changeColor: 'text-green-400' },
-      'ETHUSD': { price: '$3,456.78', change: '-1.23%', changeColor: 'text-red-400' },
-      'XLMUSD': { price: '$0.1234', change: '+5.67%', changeColor: 'text-green-400' },
-    };
-    return marketData[market] || marketData['BTCUSD'];
+export default function ChartPanel({ selectedMarket, onMarketChange }: ChartPanelProps) {
+  // Get live market data
+  const markPrice = useMarkPrice(selectedMarket);
+  const indexPrice = useIndexPrice(selectedMarket);
+  const funding = useFundingRate(selectedMarket);
+  
+  // Format prices based on symbol
+  const formatPrice = (price: number) => {
+    if (selectedMarket === 'XLMUSD') {
+      return `$${price.toFixed(4)}`;
+    }
+    return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
-
-  const marketInfo = getMarketInfo(selectedMarket);
 
   return (
     <Card className="flex flex-col h-full" noPadding>
       {/* Chart header */}
       <div className="border-b border-gray-800 px-4 py-3 flex-shrink-0 bg-gray-950/50">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-6">
-            <div>
-              <h2 className="text-white font-semibold text-base">{selectedMarket}</h2>
-              <div className="flex items-center space-x-4 mt-1">
-                <div className="flex items-center space-x-2">
-                  <span className="text-gray-500 text-xs">Mark</span>
-                  <span className="text-white font-medium">{marketInfo.price}</span>
-                </div>
-                <span className={`font-medium ${marketInfo.changeColor}`}>{marketInfo.change}</span>
+          <div>
+            <SymbolDropdown selected={selectedMarket} onChange={onMarketChange} />
+            <div className="flex items-center space-x-6 mt-1">
+              {/* Mark Price */}
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-500">Mark</span>
+                <span className="text-white font-medium">{formatPrice(markPrice)}</span>
+              </div>
+              
+              {/* Index Price */}
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-500">Index</span>
+                <span className="text-white">{formatPrice(indexPrice)}</span>
+              </div>
+              
+              {/* Funding Rate */}
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-500">Funding</span>
+                <span className={`text-sm font-medium ${funding.rate >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {funding.rate >= 0 ? '+' : ''}{(funding.rate * 100).toFixed(3)}%
+                </span>
               </div>
             </div>
           </div>
           
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs text-gray-500">Funding</span>
-              <span className="text-xs font-medium text-green-400">+0.01%</span>
-            </div>
-            <div className="text-xs text-gray-500">
-              Live Data • TradingView
-            </div>
+          <div className="text-xs text-gray-500">
+            Live Data • TradingView
           </div>
         </div>
       </div>
