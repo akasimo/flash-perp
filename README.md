@@ -1,106 +1,56 @@
-# FlashPerp - Perpetual Exchange on Stellar Soroban
+# FlashPerp
 
-A simple perpetual swap exchange built on Stellar Soroban for weekend hackathon.
+_Perpetual futures exchange on Stellar Soroban_
 
-## Features
-- **Isolated Margin Trading**: Each position has independent margin
-- **5x Leverage**: Maximum leverage with proper risk management  
-- **AMM Pricing**: Constant product (x*y=k) price discovery
-- **Auto-liquidation**: Positions below 10% margin are liquidated
-- **Hourly Funding**: Rates updated from oracle prices
-- **Multi-asset**: Support for XLM, BTC, ETH perpetuals
+FlashPerp is a full-stack demo showing how to build a perpetual-swap DEX on Soroban test-net.  It consists of:
 
-## Quick Start
+* **`contracts/`** – Rust smart-contracts (perp engine & ERC-20-style token)
+* **`frontend/`** – Next.js 14 trading UI (React + Tailwind)
+* **`bots/`** – Node/TypeScript off-chain keepers (funding & liquidations)
+* **`scripts/`** – One-shot deployment helper
 
-### Prerequisites
-- Rust with `wasm32-unknown-unknown` target
-- Stellar CLI
-- Node.js 18+ (for bots and frontend)
-- Make (optional, for convenience)
-
-### Installation
+---
+## Quick start
 ```bash
-# Install all dependencies
-make install
+# 1. clone & install
+pnpm i  # or npm ci
 
-# Or manually:
-cd bots && npm install
-cd frontend && npm install
+# 2. deploy everything to test-net (uses identity alias 'ata')
+chmod +x scripts/deploy_all.sh
+./scripts/deploy_all.sh        # builds, deploys, mints, writes frontend/.env.local
+
+# 3. run the web app
+cd frontend && pnpm dev        # reads contract IDs from .env.local
 ```
-
-### Deploy to Testnet
-```bash
-make deploy
-# Or: ./scripts/deploy.sh
+The script prints the contract IDs and writes them to `frontend/.env.local`:
 ```
-
-### Start Development
-```bash
-# Start frontend
-make dev-frontend
-
-# Start bots (in another terminal)  
-make dev-bots
-
-# Run demo
-make demo
+NEXT_PUBLIC_PERP_CONTRACT=CD…
+NEXT_PUBLIC_TOKEN_CONTRACT=CD…
+NEXT_PUBLIC_ORACLE_CONTRACT=CCYOZJ…
 ```
+Restart the dev server after every redeploy.
 
-## Project Structure
+---
+## Typical dev workflow
+| Step | Command |
+|------|---------|
+| Build / unit-test contracts | `cargo test -p flashperp` |
+| Build WASM only             | `stellar contract build` |
+| Redeploy to test-net        | `./scripts/deploy_all.sh` |
+| Front-end dev server        | `pnpm dev` inside `frontend/` |
+| Funding keeper              | `pnpm ts-node bots/src/funding_bot.ts` |
+| Liquidator bot              | `pnpm ts-node bots/src/liquidator_bot.ts` |
 
-```
-flashperp/
-├── contracts/perp/          # Soroban smart contract (Rust)
-├── bots/                    # Trading bots (TypeScript)
-│   ├── src/
-│   │   ├── funding_bot.ts   # Hourly funding updates
-│   │   └── liquidator_bot.ts # Position liquidations
-│   └── package.json
-├── frontend/                # Trading interface (Next.js)
-│   ├── app/                 # Next.js 14 app router
-│   ├── components/          # React components
-│   └── package.json
-├── scripts/                 # Deployment & demo scripts
-├── docs/                    # Documentation
-└── Makefile                 # Build orchestration
-```
-
-## Configuration
-
-1. **Deploy contract** to get contract ID
-2. **Update environment files**:
-   ```bash
-   # Root .env (for bots)
-   SECRET_KEY=<admin_secret>
-   LIQUIDATOR_SECRET_KEY=<liquidator_secret>
-   PERP_CONTRACT=<contract_id>
-   
-   # frontend/.env.local  
-   NEXT_PUBLIC_PERP_CONTRACT=<contract_id>
-   ```
-
-## Development Commands
-
-```bash
-make help           # Show all commands
-make build          # Build smart contract
-make test           # Run contract tests  
-make deploy         # Deploy to testnet
-make demo           # Run demo flow
-make dev-frontend   # Start frontend dev server
-make dev-bots       # Start funding + liquidator bots
-make clean          # Clean all build artifacts
-```
-
-## Architecture
-
-- **Smart Contract**: Handles positions, margin, liquidations
-- **Funding Bot**: Updates hourly funding rates from oracle
-- **Liquidator Bot**: Monitors and liquidates underwater positions  
-- **Frontend**: Web interface for trading with Freighter wallet
-
+---
 ## Documentation
+* `docs/frontend_integration.md` – exhaustive guide for wiring UI to chain.
+* `contracts/perp/src/lib.rs`   – main contract source & inline docs.
 
-- [Setup Guide](SETUP.md) - Detailed setup instructions
-- [Development Journal](journal.md) - Development progress
-- [Design Doc](docs/perp_design.md) - Technical specifications
+---
+## Requirements
+* **Rust 1.80+** with `wasm32v1-unknown-unknown` target
+* **Node 18+ & pnpm** (or npm)
+* **stellar-cli** (`cargo install -f stellar`) logged-in identity alias `ata`
+
+---
+_Star it if you find it useful.  PRs welcome!_
