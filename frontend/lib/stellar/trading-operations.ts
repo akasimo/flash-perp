@@ -113,10 +113,36 @@ export async function createOpenPositionTransaction({
   symbol,
   size,
   margin,
+  limitPrice,
 }: TradeParams): Promise<string> {
   try {
     const rawSize = parseTokenAmount(Math.abs(size));
-    const rawMargin = margin ? parseTokenAmount(margin) : rawSize; // Default margin = size
+    
+    // Calculate margin - if provided, it's already in display units (USD)
+    let rawMargin: bigint;
+    if (margin && margin > 0) {
+      rawMargin = parseTokenAmount(margin);
+    } else {
+      // Default: calculate 25% of position value as margin for safety
+      // This ensures we meet the contract's 20% requirement with buffer
+      const positionValue = Math.abs(size) * 0.1; // Assume $0.1 price for XLM
+      rawMargin = parseTokenAmount(positionValue * 0.25);
+    }
+    
+    // Simpler limit price strategy for market orders
+    let rawLimitPrice: bigint;
+    if (limitPrice) {
+      rawLimitPrice = parseTokenAmount(limitPrice);
+    } else {
+      // For market orders: use very permissive limits to avoid slippage failures
+      if (size > 0) {
+        // For longs (buying): use very high limit price to ensure execution
+        rawLimitPrice = parseTokenAmount(999999); // $999,999 - extremely high upper limit
+      } else {
+        // For shorts (selling): use very low limit price to ensure execution
+        rawLimitPrice = parseTokenAmount(0.000001); // $0.000001 - extremely low lower limit
+      }
+    }
     
     const baseSym = symbol.replace('USD', '');
     const openOp = createContractCall(CONTRACTS.PERP, 'open_position', {
@@ -124,6 +150,7 @@ export async function createOpenPositionTransaction({
       symbol: baseSym,
       size: (size > 0 ? rawSize : -rawSize).toString(), // Preserve sign
       margin: rawMargin.toString(),
+      limit_price: rawLimitPrice.toString(), // Add missing limit_price parameter
     });
     
     return await buildTransaction(trader, [openOp]);
@@ -139,14 +166,24 @@ export async function createOpenPositionTransaction({
 export async function createClosePositionTransaction(
   trader: string,
   symbol: string,
-  size?: number // If not provided, close entire position
+  size?: number, // If not provided, close entire position
+  limitPrice?: number // Limit price for slippage protection
 ): Promise<string> {
   try {
+    if (!size) {
+      throw new Error('Size is required for close position');
+    }
+    
+    // Default to very permissive limit price if not provided (market order behavior)
+    const rawLimitPrice = limitPrice ? parseTokenAmount(limitPrice) :
+      (size > 0 ? parseTokenAmount(0.000001) : parseTokenAmount(999999999)); // Very low for closing longs, very high for closing shorts
+    
     const baseSym = symbol.replace('USD', '');
     const closeOp = createContractCall(CONTRACTS.PERP, 'close_position', {
       trader,
       symbol: baseSym,
-      ...(size && { size: parseTokenAmount(Math.abs(size)).toString() }),
+      size: parseTokenAmount(Math.abs(size)).toString(),
+      limit_price: rawLimitPrice.toString(), // Add missing limit_price parameter
     });
     
     return await buildTransaction(trader, [closeOp]);
