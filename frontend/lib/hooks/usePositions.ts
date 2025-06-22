@@ -1,7 +1,7 @@
 // Position data hooks for trading interface
 
 import { useState, useEffect, useCallback } from 'react';
-import { callView, formatTokenAmount } from '@/lib/stellar/soroban-client';
+import { callView, formatTokenAmount, symbolToContractSymbol } from '@/lib/stellar/soroban-client';
 import { CONTRACTS, POLLING_INTERVALS, SUPPORTED_MARKETS } from '@/lib/constants/contracts';
 import { handleContractError } from '@/lib/stellar/error-handler';
 import { Position, RawPosition } from '@/lib/stellar/types';
@@ -27,7 +27,7 @@ export function usePosition(address: string | null, symbol: string): Position | 
         CONTRACTS.PERP,
         'get_position',
         address,
-        symbol.replace('USD', '')
+        symbolToContractSymbol(symbol)
       );
       
       if (!rawPosition || rawPosition.size === 0n) {

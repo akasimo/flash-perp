@@ -1,7 +1,7 @@
 // Market data hooks for real-time price and funding updates from Stellar testnet
 
 import { useState, useEffect, useCallback } from 'react';
-import { callView, formatTokenAmount, scalePrice } from '@/lib/stellar/soroban-client';
+import { callView, formatTokenAmount, scalePrice, symbolToContractSymbol } from '@/lib/stellar/soroban-client';
 import { CONTRACTS, POLLING_INTERVALS, DECIMALS, SCALING_FACTORS } from '@/lib/constants/contracts';
 import { handleContractError } from '@/lib/stellar/error-handler';
 import { FundingData } from '@/lib/stellar/types';
@@ -19,11 +19,15 @@ export function useMarkPrice(symbol: string): number {
     }
     
     try {
-      // Call flashperp.get_mark_price_view(symbol)
+      // Call flashperp.get_mark_price_view(symbol) 
+      // Use base asset name (BTC, ETH, XLM) not USD pairs
+      const baseSymbol = symbolToContractSymbol(symbol);
+      console.log('Fetching mark price for base symbol:', baseSymbol);
+      
       const rawPrice = await callView<bigint>(
         CONTRACTS.PERP,
         'get_mark_price_view',
-        symbol.replace('USD', '')
+        baseSymbol
       );
       
       // Convert from DEC6 to display number
@@ -59,11 +63,15 @@ export function useIndexPrice(symbol: string): number {
     }
     
     try {
-      // Build Asset::Other(Symbol) enum as Vec<ScVal>
+      // Build Asset::Other(Symbol) enum as Vec<ScVal> 
+      // Use base asset name (BTC, ETH, XLM) not USD pairs
+      const baseSymbol = symbolToContractSymbol(symbol);
+      console.log('Fetching index price for base symbol:', baseSymbol);
+      
       const { xdr } = await import('@stellar/stellar-sdk');
       const assetParam = xdr.ScVal.scvVec([
         xdr.ScVal.scvSymbol('Other'),
-        xdr.ScVal.scvSymbol(symbol.replace('USD', '')),
+        xdr.ScVal.scvSymbol(baseSymbol),
       ]);
 
       const rawPrice = await callView<bigint>(
@@ -72,7 +80,7 @@ export function useIndexPrice(symbol: string): number {
         assetParam,
       );
       
-      // Scale from 14 decimals to 6 decimals
+      // rawPrice is already a bigint – no need to cast again
       const scaledPrice = scalePrice(rawPrice, DECIMALS.ORACLE, DECIMALS.PRICE_DISPLAY);
       const displayPrice = formatTokenAmount(scaledPrice, DECIMALS.PRICE_DISPLAY);
       
@@ -108,28 +116,17 @@ export function useFundingRate(symbol: string): FundingData {
     
     try {
       // First poke funding to update it
-      const baseSym = symbol.replace('USD', '');
+      const baseSym = symbolToContractSymbol(symbol);
       await callView(
         CONTRACTS.PERP,
         'poke_funding',
         baseSym
       );
       
-      // Then get the funding data - this might be part of mark price view
-      // or a separate method depending on contract implementation
-      const fundingData = await callView<any>(
-        CONTRACTS.PERP,
-        'get_funding_info', // Assuming this method exists
-        baseSym
-      );
-      
-      // Convert funding rate from contract format to percentage
-      const rate = Number(fundingData.rate) / 1000000; // Assuming rate is in DEC6
-      
-      setFunding({
-        rate,
-        nextEpochTs: fundingData.next_funding_time || Date.now() + 8 * 60 * 60 * 1000
-      });
+      // The FlashPerp v1 contract doesn't expose detailed funding info yet.
+      // We simply assume `poke_funding` succeeded and show 0% until the
+      // method is available.
+      setFunding({ rate: 0 });
       setError(null);
     } catch (err) {
       console.error(`Error fetching funding rate for ${symbol}:`, err);

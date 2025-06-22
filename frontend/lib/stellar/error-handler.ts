@@ -164,6 +164,8 @@ export function handleContractError(error: any): string {
 
 // Network-specific error handling
 export function handleNetworkError(error: any): string {
+  console.error('Network error details:', error);
+  
   if (error?.code === 'NETWORK_ERROR') {
     return 'Network connection failed. Please check your internet connection.';
   }
@@ -176,21 +178,72 @@ export function handleNetworkError(error: any): string {
     return 'Too many requests. Please wait a moment and try again.';
   }
   
-  return 'Network error occurred. Please try again.';
+  // Check for specific Stellar transaction errors
+  if (error?.message?.includes('txMalformed') || error?.message?.includes('"value":-16')) {
+    return 'Transaction structure invalid. This usually means the transaction was not properly prepared for Soroban. Please contact support.';
+  }
+  
+  if (error?.message?.includes('Transaction contains more than one operation')) {
+    return 'Soroban transactions can only contain one operation. Multiple operations must be sent as separate transactions.';
+  }
+  
+  if (error?.message?.includes('txInternalError')) {
+    return 'Stellar network internal error. Please try again in a moment.';
+  }
+  
+  if (error?.message?.includes('txInsufficientFee')) {
+    return 'Transaction fee too low. Please try again.';
+  }
+  
+  if (error?.message?.includes('txBadSeq')) {
+    return 'Transaction sequence number invalid. Please refresh and try again.';
+  }
+  
+  // More detailed error for development
+  const isDev = process.env.NODE_ENV === 'development';
+  const baseMessage = 'Network error occurred. Please try again.';
+  
+  if (isDev && error?.message) {
+    return `${baseMessage} (Dev: ${error.message})`;
+  }
+  
+  return baseMessage;
 }
 
 // Transaction-specific error handling
 export function handleTransactionError(error: any): string {
+  console.error('Transaction error details:', error);
+  
+  // Handle txMalformed specifically
+  if (error?.message?.includes('txMalformed') || error?.message?.includes('"value":-16')) {
+    return 'Transaction malformed: The transaction structure is invalid. This often happens when Soroban transactions are not properly prepared. The transaction may be missing required Soroban data.';
+  }
+  
+  // Handle multiple operations error
+  if (error?.message?.includes('Transaction contains more than one operation')) {
+    return 'Soroban limitation: Transactions can only contain one operation. This deposit requires separate approve and deposit transactions.';
+  }
+  
   if (error?.message?.includes('insufficient')) {
-    return 'Insufficient balance for transaction fees.';
+    return 'Insufficient balance for transaction fees or operation amount.';
   }
   
   if (error?.message?.includes('timeout')) {
-    return 'Transaction timed out. It may still succeed.';
+    return 'Transaction timed out. It may still succeed - check your balance in a moment.';
   }
   
   if (error?.message?.includes('rejected')) {
-    return 'Transaction was rejected. Please try again.';
+    return 'Transaction was rejected by the network. Please check your wallet and try again.';
+  }
+  
+  if (error?.message?.includes('unauthorized')) {
+    return 'Transaction unauthorized. Please ensure your wallet is connected and you have permission.';
+  }
+  
+  // Enhanced error message for development
+  const isDev = process.env.NODE_ENV === 'development';
+  if (isDev && error?.message) {
+    return `Transaction failed: ${error.message}`;
   }
   
   return handleContractError(error);

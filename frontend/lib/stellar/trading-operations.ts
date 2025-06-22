@@ -71,31 +71,16 @@ export async function createDepositTransaction({
 
 /**
  * Create combined approve + deposit transaction
+ * NOTE: This function is deprecated because Soroban doesn't support multiple operations
+ * in a single transaction when using prepareTransaction. Use separate transactions instead.
  */
 export async function createApproveAndDepositTransaction({
   trader,
   amount,
 }: DepositParams): Promise<string> {
-  try {
-    const rawAmount = parseTokenAmount(amount);
-    
-    const approveOp = createContractCall(CONTRACTS.TOKEN, 'approve', {
-      from: trader,
-      spender: CONTRACTS.PERP,
-      amount: rawAmount.toString(),
-      expiration_ledger: 999999,
-    });
-    
-    const depositOp = createContractCall(CONTRACTS.PERP, 'deposit_collateral', {
-      trader,
-      amount: rawAmount.toString(),
-    });
-    
-    return await buildTransaction(trader, [approveOp, depositOp]);
-  } catch (error) {
-    console.error('Error creating approve + deposit transaction:', error);
-    throw new Error(handleContractError(error));
-  }
+  throw new Error(
+    'Batched approve + deposit is not supported by Soroban. Use separate approve and deposit transactions.'
+  );
 }
 
 /**

@@ -6,7 +6,9 @@ import React, { useState, useEffect } from 'react';
 import Button from '@/components/ui/Button';
 import { useWallet } from '@/lib/hooks/useWallet';
 import { useCollateral } from '@/lib/hooks/useCollateral';
-import { createApproveAndDepositTransaction, createWithdrawTransaction } from '@/lib/stellar/trading-operations';
+import { createWithdrawTransaction } from '@/lib/stellar/trading-operations';
+import { submitTransaction, waitForTx } from '@/lib/stellar/soroban-client';
+import { handleTransactionError } from '@/lib/stellar/error-handler';
 import { CONTRACTS } from '@/lib/constants/contracts';
 
 interface CollateralModalProps {
@@ -37,9 +39,9 @@ export default function CollateralModal({ isOpen, onClose }: CollateralModalProp
     setError(null);
     
     try {
-      const amountNum = parseFloat(amount);
-      if (amountNum <= 0) {
-        throw new Error('Amount must be greater than 0');
+      const amountNum = parseFloat(amount.trim());
+      if (isNaN(amountNum) || amountNum <= 0) {
+        throw new Error('Please enter a valid positive amount');
       }
       
       if (tab === 'deposit' && amountNum > walletBalance) {
@@ -55,13 +57,32 @@ export default function CollateralModal({ isOpen, onClose }: CollateralModalProp
       if (tab === 'deposit') {
         // For deposits, check if we need approval first
         if (allowance < amountNum) {
-          // Create approve + deposit transaction
-          txXdr = await createApproveAndDepositTransaction({
+          console.log('Insufficient allowance, creating separate approve and deposit transactions');
+          
+          // STEP 1: Create and submit approve transaction separately
+          const { createApproveTransaction } = await import('@/lib/stellar/trading-operations');
+          const approveTxXdr = await createApproveTransaction(state.address, amountNum);
+          console.log('Approve transaction created, signing...');
+          
+          const signedApproveTx = await signTransaction(approveTxXdr);
+          console.log('Approve transaction signed, submitting...');
+          
+          const approveHash = await submitTransaction(signedApproveTx);
+          console.log('Approve transaction submitted:', approveHash);
+          
+          // Wait for approve transaction to confirm
+          console.log('Waiting for approve transaction confirmation...');
+          await waitForTx(approveHash);
+          console.log('Approve transaction confirmed');
+          
+          // STEP 2: Create deposit transaction
+          const { createDepositTransaction } = await import('@/lib/stellar/trading-operations');
+          txXdr = await createDepositTransaction({
             trader: state.address,
             amount: amountNum,
           });
         } else {
-          // Just deposit transaction
+          // Just deposit transaction - allowance is sufficient
           const { createDepositTransaction } = await import('@/lib/stellar/trading-operations');
           txXdr = await createDepositTransaction({
             trader: state.address,
@@ -76,22 +97,74 @@ export default function CollateralModal({ isOpen, onClose }: CollateralModalProp
         });
       }
       
-      // Sign and submit transaction
-      const signedTx = await signTransaction(txXdr);
-      
-      console.log(`${tab} transaction submitted:`, signedTx);
-      
-      // Refresh balances after successful transaction
-      setTimeout(() => {
-        refetch();
-      }, 2000);
-      
-      // Reset form and close
-      setAmount('');
-      onClose();
+      // Sign the final transaction (deposit or withdraw)
+      console.log(`Signing final ${tab} transaction...`);
+      const signedXdr = await signTransaction(txXdr);
+      console.log(`Final ${tab} transaction signed successfully`);
+
+      // Submit the final transaction
+      console.log(`Submitting final ${tab} transaction...`);
+      const hash = await submitTransaction(signedXdr);
+      console.log(`Final ${tab} transaction submitted with hash:`, hash);
+
+      try {
+        // Wait for confirmation with timeout
+        console.log(`Waiting for ${tab} transaction confirmation...`);
+        await waitForTx(hash, 30000); // 30 second timeout
+        console.log(`${tab} transaction confirmed successfully`);
+        
+        // Show success message
+        setError(`✅ ${tab === 'deposit' ? 'Deposit' : 'Withdrawal'} completed successfully!`);
+        
+        // Refresh balances after successful confirmation
+        console.log('Refreshing balances...');
+        setTimeout(() => {
+          try {
+            refetch();
+            console.log('Balances refreshed successfully');
+          } catch (refreshError) {
+            console.error('Error refreshing balances:', refreshError);
+            // Don't throw, just log
+          }
+        }, 1000);
+        
+        // Reset form and close modal after a short delay
+        setTimeout(() => {
+          try {
+            setAmount('');
+            setError(null);
+            onClose();
+            console.log('Modal closed successfully');
+          } catch (closeError) {
+            console.error('Error closing modal:', closeError);
+            // Don't throw, just log
+          }
+        }, 2000);
+        
+      } catch (confirmError) {
+        console.error(`${tab} transaction confirmation error:`, confirmError);
+        setError(`${tab === 'deposit' ? 'Deposit' : 'Withdrawal'} submitted but confirmation timed out. Check your balance in a moment.`);
+        
+        // Still refresh balances in case it succeeded
+        setTimeout(() => {
+          try {
+            refetch();
+          } catch (refreshError) {
+            console.error('Error refreshing balances after timeout:', refreshError);
+          }
+        }, 5000);
+        
+        // Don't close modal immediately on timeout, let user see the message
+      }
     } catch (error: any) {
-      console.error(`${tab} failed:`, error);
-      setError(error.message || `Failed to ${tab} collateral`);
+      console.error(`${tab} operation failed:`, error);
+      console.error(`${tab} error stack:`, error?.stack);
+      console.error(`${tab} error type:`, typeof error);
+      console.error(`${tab} error constructor:`, error?.constructor?.name);
+      
+      // Use enhanced transaction error handling
+      const errorMessage = handleTransactionError(error);
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -195,7 +268,11 @@ export default function CollateralModal({ isOpen, onClose }: CollateralModalProp
                     setAmount(displayBalance.toFixed(2));
                   } else {
                     const percent = parseInt(preset) / 100;
-                    setAmount((displayBalance * percent).toFixed(2));
+                    const calculatedAmount = displayBalance * percent;
+                    // Ensure we have a valid positive number
+                    if (calculatedAmount > 0) {
+                      setAmount(calculatedAmount.toFixed(2));
+                    }
                   }
                 }}
                 className="py-1 px-2 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -213,21 +290,54 @@ export default function CollateralModal({ isOpen, onClose }: CollateralModalProp
                 onClick={async () => {
                   if (!state.address) return;
                   setIsLoading(true);
+                  setError(null);
+                  
                   try {
+                    console.log('Requesting faucet for address:', state.address);
+                    
                     const response = await fetch('/api/faucet', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ address: state.address }),
                     });
+                    
                     const result = await response.json();
+                    console.log('Faucet response:', result);
+                    
                     if (response.ok) {
-                      alert(`Success! Minted ${result.amount} USDC to your wallet.`);
-                      setTimeout(() => refetch(), 3000);
+                      // Show pending state
+                      setError('⏳ Transaction submitted! Waiting for confirmation...');
+                      
+                      // Wait for proper confirmation using transaction hash if available
+                      if (result.hash) {
+                        try {
+                          await waitForTx(result.hash, 30000); // 30 second timeout
+                          setError(null);
+                          alert(`✅ Success! Minted ${result.amount} USDC to your wallet.`);
+                          refetch();
+                        } catch (confirmError) {
+                          console.error('Transaction confirmation error:', confirmError);
+                          // Even if confirmation times out, refresh balance in case it succeeded
+                          setTimeout(() => {
+                            refetch();
+                            setError(null);
+                          }, 2000);
+                          alert(`Transaction submitted but confirmation timed out. Check your balance in a moment.`);
+                        }
+                      } else {
+                        // Fallback: wait and refresh without hash
+                        setTimeout(() => {
+                          refetch();
+                          setError(null);
+                          alert(`Success! Minted ${result.amount} USDC to your wallet.`);
+                        }, 8000); // Longer wait for testnet
+                      }
                     } else {
-                      alert(`Faucet error: ${result.error}`);
+                      setError(`Faucet error: ${result.error}`);
                     }
-                  } catch (error) {
-                    alert('Failed to request from faucet');
+                  } catch (error: any) {
+                    console.error('Faucet request failed:', error);
+                    setError(`Failed to request from faucet: ${error.message || 'Network error'}`);
                   } finally {
                     setIsLoading(false);
                   }
@@ -235,7 +345,7 @@ export default function CollateralModal({ isOpen, onClose }: CollateralModalProp
                 disabled={isLoading || !state.address}
                 className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white text-sm font-medium rounded transition-colors disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Requesting...' : '🚰 Get 100 USDC from Faucet'}
+                {isLoading ? 'Requesting from faucet...' : '🚰 Get 100 USDC from Faucet'}
               </button>
               <p className="text-xs text-gray-500 mt-1 text-center">
                 Free testnet USDC • 1 request per hour

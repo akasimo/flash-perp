@@ -9,7 +9,7 @@ import { BalanceData } from '@/lib/stellar/types';
 /**
  * Hook to get token balance in wallet
  */
-export function useWalletBalance(address: string | null): number {
+export function useWalletBalance(address: string | null, refetchKey = 0): number {
   const [balance, setBalance] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
@@ -42,7 +42,7 @@ export function useWalletBalance(address: string | null): number {
     
     const interval = setInterval(fetchWalletBalance, POLLING_INTERVALS.BALANCES);
     return () => clearInterval(interval);
-  }, [fetchWalletBalance]);
+  }, [fetchWalletBalance, refetchKey]);
   
   return balance;
 }
@@ -50,7 +50,7 @@ export function useWalletBalance(address: string | null): number {
 /**
  * Hook to get free collateral on exchange
  */
-export function useExchangeBalance(address: string | null): number {
+export function useExchangeBalance(address: string | null, refetchKey = 0): number {
   const [balance, setBalance] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
@@ -83,7 +83,7 @@ export function useExchangeBalance(address: string | null): number {
     
     const interval = setInterval(fetchExchangeBalance, POLLING_INTERVALS.BALANCES);
     return () => clearInterval(interval);
-  }, [fetchExchangeBalance]);
+  }, [fetchExchangeBalance, refetchKey]);
   
   return balance;
 }
@@ -91,7 +91,7 @@ export function useExchangeBalance(address: string | null): number {
 /**
  * Hook to get token allowance for the perpetual contract
  */
-export function useTokenAllowance(address: string | null): number {
+export function useTokenAllowance(address: string | null, refetchKey = 0): number {
   const [allowance, setAllowance] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
@@ -125,7 +125,7 @@ export function useTokenAllowance(address: string | null): number {
     
     const interval = setInterval(fetchAllowance, POLLING_INTERVALS.BALANCES);
     return () => clearInterval(interval);
-  }, [fetchAllowance]);
+  }, [fetchAllowance, refetchKey]);
   
   return allowance;
 }
@@ -134,14 +134,21 @@ export function useTokenAllowance(address: string | null): number {
  * Combined hook for collateral data
  */
 export function useCollateral(address: string | null) {
-  const walletBalance = useWalletBalance(address);
-  const exchangeBalance = useExchangeBalance(address);
-  const allowance = useTokenAllowance(address);
+  const [refetchKey, setRefetchKey] = useState(0);
+  
+  // Add refetch key to dependencies to force re-fetching
+  const walletBalance = useWalletBalance(address, refetchKey);
+  const exchangeBalance = useExchangeBalance(address, refetchKey);
+  const allowance = useTokenAllowance(address, refetchKey);
   
   const refetch = useCallback(() => {
-    // Force refetch by clearing cache or triggering re-fetch
-    // This could be improved with a more sophisticated cache invalidation
-    window.location.reload();
+    try {
+      console.log('Refetching collateral data...');
+      setRefetchKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error in refetch:', error);
+      // Don't throw, just log
+    }
   }, []);
   
   return {
